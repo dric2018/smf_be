@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 19 Oct, 2023
+Last Update: 23 Oct, 2023
 
 # Code Description
 ======================
@@ -11,8 +11,8 @@ Description: A re-implementation of the token-learner module [1]
 # Adaptation Information
 ==========================
 Adapted from:
-- Original Source:     source: https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py
-- Original Author: Phil Wang
+- Original Source: https://github.com/google-research/scenic/blob/main/scenic/projects/token_learner/model.py
+- Original Authors: Scenic Authors
 
 # References
 =============
@@ -25,41 +25,95 @@ Adapted from:
       primaryClass={cs.CV}
 }
 """
-
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
-class TokenLearner(nn.Module):
-    """
-    https://arxiv.org/abs/2106.11297
-    using the 1.1 version with the MLP (2 dense layers with gelu) for generating attention map
-    """
+from transformer import FeedFowardLayer, LayerNormalization
 
+class MlpBlock(nn.Module):
+    """
+        Transformer FeedForward block
+        Can use FeedForwardLayer instead
+    """
     def __init__(
-        self,
-        *,
-        dim,
-        ff_mult = 2,
-        num_output_tokens = 8,
-        num_layers = 2
+        self, 
+        in_dim, 
+        mlp_dim, 
+        out_dim, 
+        dropout_rate, 
+        activation=nn.GELU()
     ):
         super().__init__()
-        inner_dim = dim * ff_mult * num_output_tokens
-
-        self.num_output_tokens = num_output_tokens
-        self.net = nn.Sequential(
-            nn.Conv2d(dim * num_output_tokens, inner_dim, 1, groups = num_output_tokens),
-            nn.GELU(),
-            nn.Conv2d(inner_dim, num_output_tokens, 1, groups = num_output_tokens),
-        )
+        self.fc1 = nn.Linear(in_dim, mlp_dim)
+        self.activation = activation
+        self.fc2 = nn.Linear(mlp_dim, out_dim)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
-        x, ps = pack_one(x, '* c h w')
-        x = repeat(x, 'b c h w -> b (g c) h w', g = self.num_output_tokens)
-        attn = self.net(x)
-
-        attn = rearrange(attn, 'b g h w -> b 1 g h w')
-        x = rearrange(x, 'b (g c) h w -> b c g h w', g = self.num_output_tokens)
-
-        x = reduce(x * attn, 'b c g h w -> b c g', 'mean')
-        x = unpack_one(x, ps, '* c n')
+        x = self.fc1(x)
+        x = self.activation(x)
+        x = self.dropout(x)
+        x = self.fc2(x)
         return x
+
+class TokenLearnerModuleV11(nn.Module):
+    """
+        Re-Implementation if TokenLearner version 1.1
+        - MLP (2 dense layers with gelu) for generating attention map
+        - uses softmax instead of sigmoid
+        - Should be ~ 34K parameters
+        
+        Adapted from https://github.com/google-research/scenic/blob/main/scenic/projects/token_learner/model.py
+        
+        reference: @misc{ryoo2022tokenlearner,
+              title={TokenLearner: What Can 8 Learned Tokens Do for Images and Videos?}, 
+              author={Michael S. Ryoo and AJ Piergiovanni and Anurag Arnab and Mostafa Dehghani and Anelia Angelova},
+              year={2022},
+              eprint={2106.11297},
+              archivePrefix={arXiv},
+              primaryClass={cs.CV}
+        }
+    """
+    def __init__(
+        self, 
+        feature_shape,
+        num_tokens:int=8, 
+        bottleneck_dim=64, 
+        dropout_rate=0.0
+    ):
+        super().__init__()
+        self.num_tokens = num_tokens
+        self.bottleneck_dim = bottleneck_dim
+        self.dropout_rate = dropout_rate
+        self.feature_shape = feature_shape
+        
+        self.layer_norm = LayerNormalization()
+        
+        self.token_masking = FeedFowardLayer(
+            in_dim=self.feature_shape[-1],
+            mlp_dim=self.bottleneck_dim,
+            out_dim=self.num_tokens,            
+            activation_fn="GELU"
+        )
+
+    def forward(self, inputs, deterministic:bool=True):
+        if inputs.dim() == 4:
+            n, h, w, c = inputs.size()
+            inputs = inputs.view(n, h * w, c)
+
+        selected = inputs
+
+        selected = self.layer_norm(selected)
+        selected = self.token_masking(selected)
+
+        selected = selected.view(self.feature_shape[0], -1, self.num_tokens)  # Shape: [bs, h*w, n_token].
+        selected = selected.transpose(1, 2)  # Shape: [bs, n_token, h*w].
+        selected = F.softmax(selected, dim=-1)
+
+        feat = inputs
+        feat = feat.view(self.feature_shape[0], -1, self.feature_shape[-1])  # Shape: [bs, h*w, c].
+
+        feat = torch.einsum('...si,...id->...sd', [selected, feat])
+
+        return feat
