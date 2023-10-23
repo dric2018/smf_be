@@ -24,8 +24,8 @@ if torch.cuda.is_available():
     torch.backends.cudnn.benchmark = False
 
 # Paths
-DATASET_PATH = "../../dataset/robot_manipulations/"
-MODEL_PATH = "../../models/be_model.pt"
+DATASET_PATH = "../../../dataset/robot_manipulations/"
+MODEL_PATH = "../../../models/be_model.pt"
 
 # Vocabulary & Maps
 TARGETS         = ["[SOS]", "[PAD]", "[EOS]"] + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
