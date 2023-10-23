@@ -133,15 +133,22 @@ class MultiheadAttention(nn.Module):
 
 
 class FeedFowardLayer(nn.Module):
-    def __init__(self):
+    def __init__(
+        self, 
+        in_dim:int=config.D_MODEL, 
+        mlp_dim:int=config.D_FF, 
+        out_dim:int=config.D_MODEL, 
+        dropout_rate:float=config.DROPOUT_RATE,
+        activation_fn:str="ReLU"
+    ):
         super().__init__()
-        self.linear_1 = nn.Linear(config.D_MODEL, config.D_FF, bias=True)
-        self.relu = nn.ReLU()
-        self.linear_2 = nn.Linear(config.D_FF, config.D_MODEL, bias=True)
-        self.dropout = nn.Dropout(config.DROPOUT_RATE)
+        self.linear_1 = nn.Linear(in_dim, mlp_dim, bias=True)
+        self.activation = getattr(nn, activation_fn)()
+        self.linear_2 = nn.Linear(mlp_dim, out_dim, bias=True)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
-        x = self.relu(self.linear_1(x)) # (B, L, config.D_FF)
+        x = self.activation(self.linear_1(x)) # (B, L, config.D_FF)
         x = self.dropout(x)
         x = self.linear_2(x) # (B, L, config.D_MODEL)
 

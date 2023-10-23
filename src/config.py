@@ -62,20 +62,6 @@ TOKENIZER_CONFIG = {
     "do_lower_case": True
 }
 
-## Transformer
-DROPOUT_RATE = .2
-### Encoder
-TEXT_ENC_DROPOUT = 0.15
-EMBEDDING_DIM = 256
-
-### Decoder
-N_DECODER_LAYERS = 6
-N_HEADS = 8
-D_MODEL = 512
-D_K = D_MODEL // N_HEADS
-D_FF = 1024
-
-
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 8
@@ -83,6 +69,21 @@ EPOCHS = 100
 LEARNING_RATE = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
+
+## Transformer
+DROPOUT_RATE = .2
+### Encoder
+TEXT_ENC_DROPOUT = 0.15
+EMBEDDING_DIM = 256
+
+### Decoder
+NUM_IMG_TOKENS = 7
+N_DECODER_LAYERS = 6
+N_HEADS = 8
+D_MODEL = 512
+D_K = D_MODEL // N_HEADS
+D_FF = 1024
+TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, NUM_IMG_TOKENS*NUM_IMG_TOKENS, D_MODEL)
 
 
 if __name__ == "__main__":
