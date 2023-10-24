@@ -44,5 +44,5 @@ class RT1Encoder(nn.Module):
         # Extract learned tokens
         learned_tokens  = self.token_learner(vl_tokens.view(N, H_W, C))
         
-        return learned_tokens
+        return text_enc, learned_tokens
         

@@ -26,24 +26,20 @@ import torch
 import torch.nn as nn
 
 
-class Transformer(nn.Module):
-    def __init__(self):
-        super().__init__()
+def generate_masks(src_sequence, target_sequence=None):
+    
+    target_mask = None
+
+    # Create a mask that is 1 where there is input data and 0 where there is padding
+    src_mask = (src_sequence != config.SRC_PAD_TOK_ID).float().unsqueeze(1).unsqueeze(2)
+    
+    if target_sequence is not None:
+        # Create a mask that is 1 for positions less than the current position
+        batch_size, seq_len = target_sequence.shape
+        target_mask = (1 - torch.triu(torch.ones(batch_size, seq_len, seq_len, device=target_sequence.device), diagonal=1))
         
-        self.layers = nn.ModuleList([])
-        
-        for _ in range(depth):
-            self.layers.append(nn.ModuleList([
-                TransformerDecoderLayer(),
-                FeedFowardLayer()
-            ]))
-            
-    def forward(self, x, attn_mask):
-        
-        for attn, ff in self.layers:
-            x = attn(x, attn_mask = attn_mask, cond_fn = next(cond_fns, None)) + x
-            x = ff(x, cond_fn = next(cond_fns, None)) + x
-        return x
+    return src_mask, target_mask
+
 
 class MultiHeadAttention(nn.Module):
     def __init__(
@@ -51,18 +47,20 @@ class MultiHeadAttention(nn.Module):
         super().__init__()
         
         self.inf = 1e9        
-        self.head_dim = config.D_K
+        self.d_k = config.D_K
+        self.n_heads = config.N_HEADS
+        self.embed_dim = config.D_MODEL
         
         # W^Q, W^K, W^V in the paper
-        self.w_q = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.w_k = nn.Linear(self.head_dim, self.head_dim, bias=False)
-        self.w_v = nn.Linear(self.head_dim, self.head_dim, bias=False)
+        self.w_q = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+        self.w_k = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+        self.w_v = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
 
         self.dropout = nn.Dropout(config.DROPOUT_RATE)
-        self.attn_softmax = nn.Softmax(dim=-1)
+        self._softmax = nn.Softmax(dim=-1)
 
         # Final output linear transformation
-        self.output_layer = nn.Linear(self.n_heads*self.head_dim, self.embed_dim)
+        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim)
 
     def forward(self, q, k, v, mask=None):
         """
@@ -73,14 +71,18 @@ class MultiHeadAttention(nn.Module):
            mask: mask for decoder
         
         Returns:
-           output vector from multihead attention
+           output vector
         """
         input_shape = q.shape
-
+        
+        print(f"q: {q.shape} - k: {k.shape} - v: {v.shape} ")
+        if mask is not None:
+            print(f"mask: {mask.shape}")
+        
         # Linear calculation +  split into num_heads
-        q = self.w_q(q).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
-        k = self.w_k(k).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
-        v = self.w_v(v).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
+        q = self.w_q(q).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
+        k = self.w_k(k).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
+        v = self.w_v(v).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
 
         # For convenience, convert all tensors in size (B, num_heads, L, d_k)
         q = q.transpose(1, 2)
@@ -95,20 +97,22 @@ class MultiHeadAttention(nn.Module):
         return self.output_layer(concat_output)
 
     def self_attention(self, q, k, v, mask=None):
+        
         # Calculate attention scores with scaled dot-product attention
         attn_scores = torch.matmul(q, k.transpose(-2, -1)) # (B, num_heads, L, L)
-        attn_scores = attn_scores / math.sqrt(d_k)
+        attn_scores = attn_scores / math.sqrt(self.d_k)
 
         # If there is a mask, make masked spots -INF
         if mask is not None:
             mask = mask.unsqueeze(1) # (B, 1, L) => (B, 1, 1, L) or (B, L, L) => (B, 1, L, L)
             attn_scores = attn_scores.masked_fill_(mask == 0, -1 * self.inf)
 
-        # Softmax and multiplying K to calculate attention value
-        attn_distribs = self.attn_softmax(attn_scores)
-
-        attn_distribs = self.dropout(attn_distribs)
-        attn_values = torch.matmul(attn_distribs, v) # (B, num_heads, L, d_k)
+        # Softmax 
+        attn_W = self._softmax(attn_scores)
+        attn_W = self.dropout(attn_W)
+        
+        # Calculate values
+        attn_values = torch.matmul(attn_W, v) # (B, num_heads, L, d_k)
 
         return attn_values
 
@@ -175,155 +179,99 @@ class PositionalEncoder(nn.Module):
         return x
 
 
-class TransformerBlock(nn.Module):
-    def __init__(
-        self, 
-        embed_dim:int=config.D_MODEL, 
-        expansion_factor:int=config.EXPANSION, 
-        n_heads:int=config.N_HEADS
-    ):
-        super().__init__()
-        
-        """
-        Args:
-           embed_dim: dimension of the embedding
-           expansion_factor: fator ehich determines output dimension of linear layer
-           n_heads: number of attention heads
-        
-        """
-        self.attention = MultiHeadAttention(embed_dim, n_heads)
-        
-        self.norm1 = nn.LayerNorm(embed_dim) 
-        self.norm2 = nn.LayerNorm(embed_dim)
-        
-        self.feed_forward = nn.Sequential(
-                          nn.Linear(embed_dim, expansion_factor*embed_dim),
-                          nn.ReLU(),
-                          nn.Linear(expansion_factor*embed_dim, embed_dim)
-        )
-
-        self.dropout1 = nn.Dropout(0.2)
-        self.dropout2 = nn.Dropout(0.2)
-
-    def forward(self,key,query,value):
-        
-        """
-        Args:
-           key: key vector
-           query: query vector
-           value: value vector
-           norm2_out: output of transformer block
-        
-        """
-        
-        attention_out = self.attention(key,query,value)  
-        attention_residual_out = attention_out + value  
-        norm1_out = self.dropout1(self.norm1(attention_residual_out)) 
-
-        feed_fwd_out = self.feed_forward(norm1_out) 
-        feed_fwd_residual_out = feed_fwd_out + norm1_out 
-        norm2_out = self.dropout2(self.norm2(feed_fwd_residual_out))
-
-        return norm2_out
-    
 class TransformerDecoderLayer(nn.Module):
     def __init__(
         self, 
-        embed_dim:int=config.D_MODEL, 
-        expansion_factor:int=config.EXPANSION, 
-        n_heads:int=config.N_HEADS
+        d_model:int=config.D_MODEL, 
+        nhead:int=config.N_HEADS, 
+        dim_feedforward:int=config.D_FF, 
+        dropout:float=config.DECODER_DROPOUT_RATE
     ):
         super().__init__()
 
-        """
-        Args:
-           embed_dim: dimension of the embedding
-           expansion_factor: fator ehich determines output dimension of linear layer
-           n_heads: number of attention heads
+        # Multi-head self-attention
+        self.self_attn = MultiHeadAttention()
         
-        """
-        self.attention = MultiHeadAttention(embed_dim, n_heads=8)
-        self.norm = nn.LayerNorm(embed_dim)
-        self.dropout = nn.Dropout(0.2)
-        self.transformer_block = TransformerBlock(embed_dim, expansion_factor, n_heads)
+        # Layer normalization 1
+        self.norm1 = nn.LayerNorm(d_model)
         
-    
-    def forward(self, key, query, x,mask):
-        
-        """
-        Args:
-           key: key vector
-           query: query vector
-           value: value vector
-           mask: mask to be given for multi head attention 
-        Returns:
-           out: output of transformer block
-    
-        """
-        
-        #we need to pass mask mask only to fst attention
-        attention = self.attention(x,x,x,mask=mask) #32x10x512
-        value = self.dropout(self.norm(attention + x))
-        
-        out = self.transformer_block(key, query, value)
+        self.multihead_attn = MultiHeadAttention()
 
+        # Layer normalization 2
+        self.norm2 = nn.LayerNorm(d_model)
         
-        return out
+        # Position-wise feed-forward network
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.GELU(),
+            nn.Linear(dim_feedforward, d_model)
+        )
+        
+        # Layer normalization after feed-forward
+        self.norm3 = nn.LayerNorm(d_model)
+        
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
 
+    def forward(self, src, encoder_outputs, y=None, src_mask=None, y_mask=None):
+        
+        if src_mask is None:
+            src_mask, y_mask = generate_masks(src, y)
+        
+        # Multi-head self-attention
+        self_attn_output = self.self_attn(src, src, src, mask=y_mask)
+        # Apply dropout and add the residual connection
+        src = src + self.dropout(self_attn_output)
+        # Layer normalization 1
+        src = self.norm1(src)
+        # Multi-head attention over encoder outputs
+        multihead_attn_output = self.multihead_attn(src, encoder_outputs, encoder_outputs, mask=src_mask)
+        # Apply dropout and add the residual connection
+        src = src + self.dropout(multihead_attn_output)
+        # Layer normalization 2
+        src = self.norm2(src)
+        # Position-wise feed-forward network
+        ffn_output = self.ffn(src)
+        # Apply dropout and add the residual connection
+        src = src + self.dropout(ffn_output)
+        # Layer normalization 3
+        src = self.norm3(src)
+
+        return src
+    
 
 class TransformerDecoder(nn.Module):
     def __init__(
         self, 
-        target_vocab_size:int=len(config.TARGETS), 
-        embed_dim:int=config.D_MODEL, 
-        seq_len:int=config.MAX_LEN, 
-        num_layers:int=config.N_DECODER_LAYERS, 
-        expansion_factor:int=config.EXPANSION, 
-        n_heads:int=config.N_HEADS
+        num_layers:int=config.N_DECODER_LAYERS
     ):
         super().__init__()
-        """  
-        Args:
-           target_vocab_size: vocabulary size of taget
-           embed_dim: dimension of embedding
-           seq_len : length of input sequence
-           num_layers: number of encoder layers
-           expansion_factor: factor which determines number of linear layers in feed forward layer
-           n_heads: number of heads in multihead attention
         
-        """
-        self.word_embedding = nn.Embedding(target_vocab_size, embed_dim)
-        self.position_embedding = PositionalEncoder(seq_len)
-
-        self.layers = nn.ModuleList(
-            [
-                TransformerBlock(embed_dim, expansion_factor=4, n_heads=8) 
-                for _ in range(num_layers)
-            ]
-
+        self.num_layers = num_layers
+        self.target_embedding = nn.Embedding(
+            num_embeddings=config.TARGET_VOCAB_SIZE, 
+            embedding_dim=config.D_MODEL, 
+            padding_idx=config.TARGETS_MAPPING["[PAD]"]
         )
-        self.fc_out = nn.Linear(embed_dim, target_vocab_size)
-        self.dropout = nn.Dropout(0.2)
-
-    def forward(self, x, enc_out, mask):
+        self.layers = nn.ModuleList([
+            TransformerDecoderLayer()
+            for _ in range(num_layers)
+        ])
         
-        """
-        Args:
-            x: input vector from target
-            enc_out : output from encoder layer
-            mask: mask for decoder self attention
-        Returns:
-            out: output vector
-        """
+        self._initialize()
+    
+    def _initialize(self):
+        
+        # Glorot / fan_avg. Initialization
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform(p)
             
-        
-        x = self.word_embedding(x)  
-        x = self.position_embedding(x) 
-        x = self.dropout(x)
-     
+    def forward(self, src, encoder_outputs, y=None, src_mask=None, y_mask=None):
+        if y_mask is None or src_mask is None:
+            src, y_mask = generate_masks(src, y)
         for layer in self.layers:
-            x = layer(enc_out, x, enc_out, mask) 
+            src = layer(src, encoder_outputs, src_mask, y_mask)
 
-        out = F.softmax(self.fc_out(x))
-
-        return out
+        return src
+    

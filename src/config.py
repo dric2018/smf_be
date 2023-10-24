@@ -28,9 +28,11 @@ DATASET_PATH = "../../../dataset/robot_manipulations/"
 MODEL_PATH = "../../../models/be_model.pt"
 
 # Vocabulary & Maps
+SRC_PAD_TOK_ID = 0
 TARGETS         = ["[SOS]", "[PAD]", "[EOS]"] + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
+TARGET_VOCAB_SIZE = len(TARGETS)
 
 # Inputs & Tokenizer
 # Constants for normalization
@@ -83,19 +85,20 @@ NUM_CHANNELS = {
 }
 TEXT_ENC_DROPOUT = 0.15
 EMBEDDING_DIM = 512
-DROPOUT_RATE = .2
 
 ### Decoder
+DROPOUT_RATE = .1
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
-TOKEN_LEARNER_DROPOUT = .05
+TOKEN_LEARNER_DROPOUT = .1
 N_DECODER_LAYERS = 6
 N_HEADS = 8
 EXPANSION = 4
 D_MODEL = 512
 D_K = D_MODEL // N_HEADS
-D_FF = 1024
+D_FF = 2048
 TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)
+DECODER_DROPOUT_RATE = .1
 
 
 if __name__ == "__main__":
