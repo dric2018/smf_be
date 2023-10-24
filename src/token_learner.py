@@ -101,6 +101,8 @@ class TokenLearnerModuleV11(nn.Module):
         if inputs.dim() == 4:
             n, h, w, c = inputs.size()
             inputs = inputs.view(n, h * w, c)
+        
+        n, h_w, c = inputs.shape
 
         selected = inputs
 
@@ -113,7 +115,7 @@ class TokenLearnerModuleV11(nn.Module):
 
         feat = inputs
         feat = feat.view(self.feature_shape[0], -1, self.feature_shape[-1])  # Shape: [bs, h*w, c].
-
+        # print(f"feat: {feat.shape} - selected: {selected.shape}")
         feat = torch.einsum('...si,...id->...sd', [selected, feat])
 
-        return feat
+        return feat.view(n, c, self.num_tokens)

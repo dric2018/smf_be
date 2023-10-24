@@ -36,13 +36,13 @@ TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
 # Constants for normalization
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-
+IMG_SIZE = 224
 TRAIN_TFMS        = {
-    "Resize"                  : {"height": 224,"width": 224},
+    "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
     "RandomBrightnessContrast": {'p': 0.2},
 }
 TEST_TFMS        = {
-    "Resize"                  : {"height": 224,"width": 224},
+    "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
 }  
 MAX_LEN = 16
 VALIDATION_PCT = .26
@@ -57,7 +57,7 @@ IMG_ENCODER_BACKBONES = {
     "efficientnet_b4" : "EfficientNet_B4_Weights.IMAGENET1K_V1"
 
 }
-LANG_MODEL_NAME = 'prajjwal1/bert-mini'
+LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
 }
@@ -65,7 +65,7 @@ TOKENIZER_CONFIG = {
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 8
-EPOCHS = 100
+EPOCHS = 200
 LEARNING_RATE = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
@@ -73,17 +73,25 @@ NUM_WORKERS = 4
 ## Transformer
 DROPOUT_RATE = .2
 ### Encoder
+NUM_CHANNELS = {
+    "resnet18": 512,
+    "resnet34": 512,
+    "convnext_tiny": 768,
+    "efficientnet_b4": 1536,
+    "efficientnet_b4": 1792,
+    "resnet50": 2048,
+}
 TEXT_ENC_DROPOUT = 0.15
-EMBEDDING_DIM = 256
+EMBEDDING_DIM = 512
 
 ### Decoder
-NUM_IMG_TOKENS = 7
+IMG_TOKEN_SIZE = 8
 N_DECODER_LAYERS = 6
 N_HEADS = 8
 D_MODEL = 512
 D_K = D_MODEL // N_HEADS
 D_FF = 1024
-TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, NUM_IMG_TOKENS*NUM_IMG_TOKENS, D_MODEL)
+TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, D_MODEL)
 
 
 if __name__ == "__main__":
