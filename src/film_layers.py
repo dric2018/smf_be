@@ -15,7 +15,7 @@ class FiLMBlock(nn.Module):
         Adapted from: https://github.com/caffeinism/FiLM-pytorch/blob/master/networks.py
     """
     def __init__(self):
-        super(FiLMBlock, self).__init__()
+        super().__init__()
 
     def forward(self, x, gamma, beta):
         beta = beta.view(x.size(0), x.size(1), 1, 1)
@@ -35,7 +35,7 @@ class FiLMBlockV2(nn.Module):
         self, 
         num_img_channels:int=512
     ):
-        super(FiLMBlockV2, self).__init__()
+        super().__init__()
         
         self.projection_add = nn.Linear(config.EMBEDDING_DIM, num_img_channels)
         self.projection_mult = nn.Linear(config.EMBEDDING_DIM, num_img_channels)
@@ -78,7 +78,7 @@ class ResBlock(nn.Module):
         Adapted from: https://github.com/caffeinism/FiLM-pytorch/blob/master/networks.py
     """
     def __init__(self, in_c:int, out_c:int):
-        super(ResBlock, self).__init__()
+        super().__init__()
 
         self.conv1 = nn.Conv2d(
             in_channels=in_c, 
@@ -120,7 +120,7 @@ class ResBlockDWConv(nn.Module):
         This implementation uses depthwise convolutions instead of the regular one
     """
     def __init__(self, in_c: int, out_c: int):
-        super(ResBlockDWConv, self).__init__()
+        super().__init__()
         
         # conv layers
         self.conv1 = nn.Conv2d(
@@ -180,12 +180,11 @@ class FiLMEncoder(nn.Module):
     """
     def __init__(
         self,
-        n_res_blocks:int=3,
-        out_dim:int=256,
+        n_res_blocks:int=config.NUM_RES_BLOCKS,
         dim_description:int=config.EMBEDDING_DIM,
         arch:str="resnet34"
     ):
-        super(FiLMEncoder, self).__init__()
+        super().__init__()
         
         self.n_res_blocks = n_res_blocks
         self.n_channels = config.NUM_CHANNELS[arch]
@@ -193,17 +192,21 @@ class FiLMEncoder(nn.Module):
         self.feature_extractor = ImageFeatureExtractor(arch=arch)
         self.res_blocks = nn.ModuleList()
 
-        for _ in range(n_res_blocks):
+        for _ in range(self.n_res_blocks):
             self.res_blocks.append(ResBlockDWConv(self.n_channels, self.n_channels))
 
 
     def forward(self, x, conditioning):
-        
+                
         # print(f"x: {x.shape} - desc (emb): {conditioning.shape}")
         out = self.feature_extractor(x)
+        N, C, _, _ = out.shape
+
         # print(f"int. out: {out.shape}")
         for i, res_block in enumerate(self.res_blocks):
             out = res_block(out, conditioning)
         
         # print(f"out: {out.shape}")
-        return out
+        vl_tokens = out.view(N, C, -1) # shape: [N, C, H*W] - 49, 64 or 81 vision-language tokens
+        
+        return vl_tokens

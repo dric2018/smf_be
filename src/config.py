@@ -70,28 +70,31 @@ LEARNING_RATE = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 
-## Transformer
-DROPOUT_RATE = .2
+## Robotic Transformer
 ### Encoder
+NUM_RES_BLOCKS = 12
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
     "convnext_tiny": 768,
-    "efficientnet_b4": 1536,
+    "efficientnet_b3": 1536,
     "efficientnet_b4": 1792,
     "resnet50": 2048,
 }
 TEXT_ENC_DROPOUT = 0.15
 EMBEDDING_DIM = 512
+DROPOUT_RATE = .2
 
 ### Decoder
-IMG_TOKEN_SIZE = 8
+IMG_TOKEN_SIZE = 7
+NUM_LEARNED_TOKENS = 8
+TOKEN_LEARNER_DROPOUT = .05
 N_DECODER_LAYERS = 6
 N_HEADS = 8
 D_MODEL = 512
 D_K = D_MODEL // N_HEADS
 D_FF = 1024
-TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, D_MODEL)
+TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)
 
 
 if __name__ == "__main__":

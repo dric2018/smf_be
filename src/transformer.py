@@ -25,28 +25,6 @@ import math
 import torch
 import torch.nn as nn
 
-class TransformerEncoderLayer(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.layer_norm_1 = LayerNormalization()
-        self.multihead_attention = MultiheadAttention()
-        self.drop_out_1 = nn.Dropout(config.DROPOUT_RATE)
-
-        self.layer_norm_2 = LayerNormalization()
-        self.feed_forward = FeedFowardLayer()
-        self.drop_out_2 = nn.Dropout(config.DROPOUT_RATE)
-
-    def forward(self, x, e_mask):
-        x_1 = self.layer_norm_1(x) # (B, L, config.D_MODEL)
-        x = x + self.drop_out_1(
-            self.multihead_attention(x_1, x_1, x_1, mask=e_mask)
-        ) # (B, L, config.D_MODEL)
-        x_2 = self.layer_norm_2(x) # (B, L, config.D_MODEL)
-        x = x + self.drop_out_2(self.feed_forward(x_2)) # (B, L, config.D_MODEL)
-
-        return x # (B, L, config.D_MODEL)
-
-
 class TransformerDecoderLayer(nn.Module):
     def __init__(self):
         super().__init__()
@@ -62,7 +40,8 @@ class TransformerDecoderLayer(nn.Module):
         self.feed_forward = FeedFowardLayer()
         self.drop_out_3 = nn.Dropout(config.DROPOUT_RATE)
 
-    def forward(self, x, e_output, e_mask,  d_mask):
+    def forward(self, x, enc_output, enc_mask,  d_mask):
+        
         x_1 = self.layer_norm_1(x) # (B, L, config.D_MODEL)
         x = x + self.drop_out_1(
             self.masked_multihead_attention(x_1, x_1, x_1, mask=d_mask)
@@ -189,58 +168,3 @@ class PositionalEncoder(nn.Module):
         x = x + self.positional_encoding # (B, L, config.D_MODEL)
 
         return x
-
-class TransformerEncoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.layers = nn.ModuleList([TransformerEncoderLayer() for i in range(num_layers)])
-        self.layer_norm = LayerNormalization()
-
-    def forward(self, x, e_mask):
-        for i in range(num_layers):
-            x = self.layers[i](x, e_mask)
-
-        return self.layer_norm(x)
-
-
-class TransformerDecoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        
-        self.num_layers = config.N_DECODER_LAYERS
-        self.layers = nn.ModuleList([TransformerDecoderLayer() for i in range(self.num_layers)])
-        self.layer_norm = LayerNormalization()
-
-    def forward(self, x, e_output, e_mask, d_mask):
-        for i in range(self.num_layers):
-            x = self.layers[i](x, e_output, e_mask, d_mask)
-
-        return self.layer_norm(x)
-    
-    
-class Transformer(nn.Module):
-    def __init__(self, src_vocab_size, trg_vocab_size):
-        super().__init__()
-        self.src_vocab_size = src_vocab_size
-        self.trg_vocab_size = trg_vocab_size
-
-        self.src_embedding = nn.Embedding(self.src_vocab_size, config.config.D_MODEL)
-        self.trg_embedding = nn.Embedding(self.trg_vocab_size, config.config.D_MODEL)
-        self.positional_encoder = PositionalEncoder()
-        self.encoder = Encoder()
-        self.decoder = Decoder()
-        self.output_linear = nn.Linear(config.config.D_MODEL, self.trg_vocab_size)
-        self.softmax = nn.LogSoftmax(dim=-1)
-
-    def forward(self, src_input, trg_input, e_mask=None, d_mask=None):
-        src_input = self.src_embedding(src_input) # (B, L) => (B, L, config.D_MODEL)
-        trg_input = self.trg_embedding(trg_input) # (B, L) => (B, L, config.D_MODEL)
-        src_input = self.positional_encoder(src_input) # (B, L, config.D_MODEL) => (B, L, config.D_MODEL)
-        trg_input = self.positional_encoder(trg_input) # (B, L, config.D_MODEL) => (B, L, config.D_MODEL)
-
-        e_output = self.encoder(src_input, e_mask) # (B, L, config.D_MODEL)
-        d_output = self.decoder(trg_input, e_output, e_mask, d_mask) # (B, L, config.D_MODEL)
-
-        output = self.softmax(self.output_linear(d_output)) # (B, L, config.D_MODEL) => # (B, L, trg_vocab_size)
-
-        return output

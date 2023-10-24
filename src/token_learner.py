@@ -25,6 +25,7 @@ Adapted from:
       primaryClass={cs.CV}
 }
 """
+import config
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -77,10 +78,10 @@ class TokenLearnerModuleV11(nn.Module):
     """
     def __init__(
         self, 
-        feature_shape,
-        num_tokens:int=8, 
+        feature_shape:tuple=config.TOKEN_LEARNER_FTRS_SHAPE,
+        num_tokens:int=config.NUM_LEARNED_TOKENS, 
         bottleneck_dim=64, 
-        dropout_rate=0.0
+        dropout_rate=config.TOKEN_LEARNER_DROPOUT
     ):
         super().__init__()
         self.num_tokens = num_tokens
@@ -99,14 +100,16 @@ class TokenLearnerModuleV11(nn.Module):
 
     def forward(self, inputs, deterministic:bool=True):
         if inputs.dim() == 4:
-            n, h, w, c = inputs.size()
+            n, c, h, w = inputs.size()
             inputs = inputs.view(n, h * w, c)
         
         n, h_w, c = inputs.shape
 
         selected = inputs
-
+        # print(f"LN in: {selected.shape}")
         selected = self.layer_norm(selected)
+        # print(f"LN out: {selected.shape}")
+
         selected = self.token_masking(selected)
 
         selected = selected.view(self.feature_shape[0], -1, self.num_tokens)  # Shape: [bs, h*w, n_token].

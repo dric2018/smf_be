@@ -1,6 +1,7 @@
 
 
 import config
+import torch
 import torch.nn as nn
 import torchvision.models as models
 
@@ -63,7 +64,7 @@ class ImageFeatureExtractor(nn.Module):
         arch:str="resnet34",
         freeze:bool=True
     ):
-        super(ImageFeatureExtractor, self).__init__()
+        super().__init__()
 
         self.pretrained = pretrained
         self.freeze = freeze
@@ -88,15 +89,13 @@ class ImageFeatureExtractor(nn.Module):
             param.requires_grad = False 
 
     def forward(self, x, flat_out:bool=False):
-        if self.pretrained:
-            enc = self.fe(x)
-            if flat_out:
-                return torch.flatten(enc, 1)
-            else:
-                return enc
+        
+        # extract image features
+        enc = self.fe(x)
+        if flat_out:
+            return torch.flatten(enc, 1)
         else:
-            return self.fe(x)
-
+            return enc
 
 class Head(nn.Module):
     """
