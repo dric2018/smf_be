@@ -42,6 +42,7 @@ MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 IMG_SIZE = 224
 IMG_RESIZE = 300
+
 TRAIN_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
     "RandomBrightnessContrast": {'p': 0.2},
@@ -58,7 +59,7 @@ HISTORY_AUGS = A.Compose([
     A.Sharpen()
 ])
 MAX_LEN = 16
-VALIDATION_PCT = .26
+VALIDATION_PCT = .2
 
 # model
 IMG_ENCODER_BACKBONES = {
@@ -101,16 +102,18 @@ EMBEDDING_DIM = 512
 DROPOUT_RATE = .1
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
+NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
 TOKEN_LEARNER_DROPOUT = .1
 N_DECODER_LAYERS = 6
 N_HEADS = 8
 EXPANSION = 4
 D_MODEL = 512
-D_K = D_MODEL // N_HEADS
+D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
 TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)
 DECODER_DROPOUT_RATE = .1
-
+ACTION_BINS = 256
+NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 
 
 if __name__ == "__main__":
     pprint(TARGETS[:4])

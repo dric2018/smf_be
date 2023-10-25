@@ -1,6 +1,8 @@
 
 
 import config
+from matplotlib import pyplot
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -127,3 +129,19 @@ class Head(nn.Module):
             return x
 
 
+def plot_self_attention(attn_w, example_idx:int=0):
+    
+    num_heads = attn_w.size(1)
+
+    fig, axes = pyplot.subplots(1, num_heads, figsize=(15, 5))
+
+    for head_idx in range(num_heads):
+        # Extract attention weights for the chosen example and head
+        attn_w_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()
+
+        # Visualize the attention weights as a heatmap in the corresponding subplot
+        ax = axes[head_idx]
+        ax.imshow(attn_w_example_head, cmap='coolwarm')
+        ax.set_title(f'Head {head_idx + 1}')
+
+    pyplot.show()

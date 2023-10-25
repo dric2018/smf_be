@@ -57,7 +57,10 @@ class RT1Encoder(nn.Module):
         # Generate history
         history = History(imgs)
 
-        tokenized_inputs = torch.zeros((B, config.NUM_HISTORY+1, config.D_MODEL, config.NUM_LEARNED_TOKENS))
+        tokenized_inputs = torch.zeros(
+            (B, config.NUM_HISTORY+1, config.D_MODEL, config.NUM_LEARNED_TOKENS),
+            device = config.DEVICE
+        )
 
         for h in range(config.NUM_HISTORY+1):
             # print(history.carousel[:, :, h, :, :].shape)
@@ -71,5 +74,5 @@ class RT1Encoder(nn.Module):
             tokenized_inputs[:,  h] = tokens 
             
             
-            return src_enc, tokenized_inputs
+        return src_enc, tokenized_inputs.view(B, -1, config.D_MODEL)
         

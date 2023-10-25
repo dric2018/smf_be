@@ -20,7 +20,7 @@ Adapted from:
 
 """
 import config
-from einops import epeat
+from einops import repeat
 
 import math
 import torch
@@ -53,11 +53,12 @@ def generate_causal_attention_mask():
     attn_mask = torch.ones((config.NUM_HISTORY+1, config.NUM_HISTORY+1), dtype = torch.bool, device = config.DEVICE).triu(1)
     attn_mask = repeat(attn_mask, 'i j -> (i r1) (j r2)', r1 = config.NUM_LEARNED_TOKENS, r2 = config.NUM_LEARNED_TOKENS)
         
-    return attn_mask
+    return ~attn_mask # return inverted mask for causal attention
 
 class MultiHeadAttention(nn.Module):
     def __init__(
-        self):
+        self
+    ):
         super().__init__()
         
         self.inf = 1e9        
@@ -74,19 +75,19 @@ class MultiHeadAttention(nn.Module):
         self._softmax = nn.Softmax(dim=-1)
 
         # Final output linear transformation
-        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
+        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim)
 
-    def forward(self, q, k, v, memory, mask=None):
+    def forward(self, q, k, v, mask=None, return_weights:bool=False):
         """
         Args:
            k : key vector
            q : query vector
            v : value vector
-           memory: context/latent vector - encoder outputs
-           mask: attention mask
+           mask: mask for decoder
+           return_weights: whether to return attentio weights or not (defaul: False)
         
         Returns:
-           output vector
+           self_attention_outputs : (out, attn_W)
         """
         input_shape = q.shape
         
@@ -105,13 +106,22 @@ class MultiHeadAttention(nn.Module):
         v = v.transpose(1, 2)
 
         # Conduct self-attention
-        attn_values = self.self_attention(q, k, v, mask=mask) # (B, num_heads, L, d_k)
+        attn_values, attn_W = self.self_attention(q, k, v, mask=mask, return_weights=return_weights) # (B, num_heads, L, d_k)
         concat_output = attn_values.transpose(1, 2)\
             .contiguous().view(input_shape[0], -1, self.embed_dim) # (B, L, config.D_MODEL)
+        
+        out = self.output_layer(concat_output)
+        
+        return out, attn_W
 
-        return self.output_layer(concat_output)
-
-    def self_attention(self, q, k, v, mask=None):
+    def self_attention(
+        self, 
+        q:torch.Tensor, 
+        k:torch.Tensor, 
+        v:torch.Tensor, 
+        mask:torch.Tensor=None, 
+        return_weights:bool=False
+    ):
         
         # Calculate attention scores with scaled dot-product attention
         attn_scores = torch.matmul(q, k.transpose(-2, -1)) # (B, num_heads, L, L)
@@ -128,8 +138,11 @@ class MultiHeadAttention(nn.Module):
         
         # Calculate values
         attn_values = torch.matmul(attn_W, v) # (B, num_heads, L, d_k)
-
-        return attn_values
+        
+        if return_weights:
+            return attn_values, attn_W
+        else:
+            return attn_values, None
 
 
 class FeedFowardLayer(nn.Module):
