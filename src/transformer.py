@@ -11,15 +11,16 @@ Description: A re-implementation of the transformer architecture from [1]
 # Adaptation Information
 ==========================
 Adapted from:
-- Original Source: https://github.com/devjwsong/transformer-translator-pytorch/tree/master/src
-- Original Author: Jaewoo (Kyle) Song
-
+- https://github.com/devjwsong/transformer-translator-pytorch/tree/master/src [Jaewoo (Kyle) Song]
+- https://github.com/google-research/robotics_transformer/blob/master/transformer.py [Original RT1]
+- https://github.com/lucidrains/robotic-transformer-pytorch/blob/main/robotic_transformer_pytorch/robotic_transformer_pytorch.py
 # References
 =============
 [1] Vaswani, A., Shazeer, N., Parmar, N., Uszkoreit, J., Jones, L., Gomez, A. N., ... & Polosukhin, I. (2017). Attention is all you need. In Advances in neural information processing systems (pp. 5998-6008). (http://papers.nips.cc/paper/7181-attention-is-all-you-need)
 
 """
 import config
+from einops import epeat
 
 import math
 import torch
@@ -40,6 +41,19 @@ def generate_masks(src_sequence, target_sequence=None):
         
     return src_mask, target_mask
 
+def generate_causal_attention_mask():
+    """
+        Args:
+            None
+
+        Returns: 
+            attn_mask: causal attention mask matching the shape of the learned tokens
+    """
+    
+    attn_mask = torch.ones((config.NUM_HISTORY+1, config.NUM_HISTORY+1), dtype = torch.bool, device = config.DEVICE).triu(1)
+    attn_mask = repeat(attn_mask, 'i j -> (i r1) (j r2)', r1 = config.NUM_LEARNED_TOKENS, r2 = config.NUM_LEARNED_TOKENS)
+        
+    return attn_mask
 
 class MultiHeadAttention(nn.Module):
     def __init__(
@@ -60,15 +74,16 @@ class MultiHeadAttention(nn.Module):
         self._softmax = nn.Softmax(dim=-1)
 
         # Final output linear transformation
-        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim)
+        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
 
-    def forward(self, q, k, v, mask=None):
+    def forward(self, q, k, v, memory, mask=None):
         """
         Args:
            k : key vector
            q : query vector
            v : value vector
-           mask: mask for decoder
+           memory: context/latent vector - encoder outputs
+           mask: attention mask
         
         Returns:
            output vector

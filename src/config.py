@@ -4,6 +4,8 @@
 Author: Cedric Manouan
 Last Update: 19 Oct, 2023
 """
+
+import albumentations as A
 import numpy as np
 from pprint import pprint
 import random
@@ -39,6 +41,7 @@ TARGET_VOCAB_SIZE = len(TARGETS)
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
 IMG_SIZE = 224
+IMG_RESIZE = 300
 TRAIN_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
     "RandomBrightnessContrast": {'p': 0.2},
@@ -46,6 +49,14 @@ TRAIN_TFMS        = {
 TEST_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
 }  
+NUM_HISTORY = 5
+HISTORY_AUGS = A.Compose([
+    A.Defocus(),
+    A.Emboss(p=0.5),
+    A.Perspective(),
+    A.CoarseDropout(p=0.3),
+    A.Sharpen()
+])
 MAX_LEN = 16
 VALIDATION_PCT = .26
 
