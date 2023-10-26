@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 19 Oct, 2023
+Last Update: 26 Oct, 2023
 
 # Code Description
 ======================
@@ -155,9 +155,9 @@ class FeedFowardLayer(nn.Module):
         activation_fn:str="ReLU"
     ):
         super().__init__()
-        self.linear_1 = nn.Linear(in_dim, mlp_dim, bias=True)
+        self.linear_1 = nn.Linear(in_dim, mlp_dim*config.EXPANSION, bias=True)
         self.activation = getattr(nn, activation_fn)()
-        self.linear_2 = nn.Linear(mlp_dim, out_dim, bias=True)
+        self.linear_2 = nn.Linear(mlp_dim*config.EXPANSION, out_dim, bias=True)
         self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, x):
@@ -183,7 +183,7 @@ class LayerNormalization(nn.Module):
 class PositionalEncoder(nn.Module):
     def __init__(
         self,
-        seq_len
+        seq_len:int=NUM_TOKENIZED_INPUTS
     ):
         super().__init__()
         # Make initial positional encoding matrix with 0

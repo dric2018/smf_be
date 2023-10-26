@@ -1,8 +1,14 @@
-
+"""
+# Author Information
+======================
+Author: Cedric Manouan
+Last Update: 26 Oct, 2023
+"""
 
 import config
 from matplotlib import pyplot
 
+import timm
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -63,7 +69,7 @@ class ImageFeatureExtractor(nn.Module):
     def __init__(
         self, 
         pretrained:bool=True, 
-        arch:str="resnet34",
+        arch:str="efficientnet_b3",
         freeze:bool=True
     ):
         super().__init__()
@@ -71,17 +77,14 @@ class ImageFeatureExtractor(nn.Module):
         self.pretrained = pretrained
         self.freeze = freeze
 
-        if self.pretrained:
-            self.arch   = getattr(models, arch)(weights="IMAGENET1K_V1")
-            self.fe     = get_backbone(model=self.arch)
-        else:
-            self.fe = nn.Sequential(
-            conv(3, 128, 5, 2, 2),
-            conv(128, 128, 3, 2, 1),
-            conv(128, 128, 3, 2, 1),
-            conv(128, 128, 3, 1, 1),
-            conv(128, 128, 3, 1, 1),
+        self.fe     = timm.create_model(
+            model_name=arch,
+            pretrained=pretrained,
+            features_only=True,
         )
+            
+        self.out_layer = VisionLanguageHead(prev_channels=config.NUM_CHANNELS[arch], n_classes=config.EMBEDDING_DIM)
+
             
         if self.freeze:
             self._freeze_model()
@@ -90,14 +93,16 @@ class ImageFeatureExtractor(nn.Module):
         for param in self.fe.parameters():
             param.requires_grad = False 
 
-    def forward(self, x, flat_out:bool=False):
+    def forward(self, x, flat_out:bool=False, return_feats:bool=True):
         
         # extract image features
-        enc = self.fe(x)
+        enc = self.fe(x)[-1] # return last output features
+        out = self.out_layer(enc, return_feats)
+        
         if flat_out:
-            return torch.flatten(enc, 1)
+            return torch.flatten(out, 1)
         else:
-            return enc
+            return out
 
 class Head(nn.Module):
     """
@@ -107,27 +112,46 @@ class Head(nn.Module):
     def __init__(self, prev_channels, n_classes):
         super(Head, self).__init__()
 
-        self.conv = nn.Conv2d(prev_channels, 512, 1, 1, 0)
-        self.relu = nn.ReLU(inplace=True)
-        self.global_max_pool = nn.AdaptiveMaxPool2d((1, 1))
-        self.fc = nn.Sequential(nn.Linear(512, 1024),
-                                   nn.ReLU(inplace=True),
-                                   nn.Linear(1024, 1024),
-                                   nn.ReLU(inplace=True),
-                                   nn.Linear(1024, n_classes))
+        self.conv = nn.Conv2d(prev_channels, n_classes, 1, 1, 0)
+        self.activation = nn.GELU()
+        # self.global_max_pool = nn.AdaptiveMaxPool2d((1, 1))
+        # self.fc = nn.Sequential(nn.Linear(512, 1024),
+        #                            nn.ReLU(inplace=True),
+        #                            nn.Linear(1024, 1024),
+        #                            nn.ReLU(inplace=True),
+        #                            nn.Linear(1024, n_classes))
 
     def forward(self, x, return_feats:bool=True):
-
-        x = self.conv(x)
-        feats = self.global_max_pool(x)
+        
+        print(f"Head in: {x.shape}")
+        feats = self.conv(x)
+        feats = self.global_max_pool(feats)
 
         if return_feats:
-            return torch.flatten(feats, 1)
+            return feats
         else:
             x = feats.view(feats.size(0), feats.size(1))
             x = self.fc(x)
             return x
 
+class VisionLanguageHead(nn.Module):
+    def __init__(self, prev_channels, n_classes):
+        super(VisionLanguageHead, self).__init__()
+
+        self.conv = nn.Conv2d(prev_channels, n_classes, 1, 1, 0)
+        self.activation = nn.GELU()
+        self.global_max_pool = nn.AdaptiveMaxPool2d((1, 1))
+
+    def forward(self, x, return_feats:bool=True):
+        
+        # print(f"Head in: {x.shape}")
+        feats = self.activation(self.conv(x))
+        # feats = 
+
+        if return_feats:
+            return feats
+        else:
+            return self.global_max_pool(feats)
 
 def plot_self_attention(attn_w, example_idx:int=0):
     

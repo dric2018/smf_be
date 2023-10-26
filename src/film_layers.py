@@ -182,15 +182,18 @@ class FiLMEncoder(nn.Module):
         self,
         n_res_blocks:int=config.NUM_RES_BLOCKS,
         dim_description:int=config.EMBEDDING_DIM,
-        arch:str="resnet34"
+        arch:str="efficientnet_b3",
+        freeze_cnn_backbone:bool=True
     ):
         super().__init__()
         
         self.n_res_blocks = n_res_blocks
-        self.n_channels = config.NUM_CHANNELS[arch]
+        self.freeze_cnn_backbone= freeze_cnn_backbone
+        self.n_channels = config.DIM_VL_TOKENS
         self.dim_description = dim_description
-        self.feature_extractor = ImageFeatureExtractor(arch=arch)
+        self.feature_extractor = ImageFeatureExtractor(arch=arch, freeze=freeze_cnn_backbone)
         self.res_blocks = nn.ModuleList()
+        
 
         for _ in range(self.n_res_blocks):
             self.res_blocks.append(ResBlockDWConv(self.n_channels, self.n_channels))

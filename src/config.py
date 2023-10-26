@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 19 Oct, 2023
+Last Update: 26 Oct, 2023
 """
 
 import albumentations as A
@@ -40,8 +40,8 @@ TARGET_VOCAB_SIZE = len(TARGETS)
 # Constants for normalization
 MEAN = [0.485, 0.456, 0.406]
 STD = [0.229, 0.224, 0.225]
-IMG_SIZE = 224
-IMG_RESIZE = 300
+IMG_SIZE = 288 # default size for efficientnet B3: will produce a feature map of shape (B, EMBEDDING_DIM, 9, 9)
+IMG_RESIZE = 384
 
 TRAIN_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
@@ -63,12 +63,16 @@ VALIDATION_PCT = .2
 
 # model
 IMG_ENCODER_BACKBONES = {
-    "resnet18"        : "ResNet18_Weights.IMAGENET1K_V1",
-    "resnet34"        : "ResNet34_Weights.IMAGENET1K_V1",
-    "resnet50"        : "ResNet50_Weights.IMAGENET1K_V1",
-    "convnext_tiny"   : "ConvNeXt_Tiny_Weights.IMAGENET1K_V1",
-    "efficientnet_b3" : "EfficientNet_B3_Weights.IMAGENET1K_V1",
-    "efficientnet_b4" : "EfficientNet_B4_Weights.IMAGENET1K_V1"
+    "resnet18"        : "resnet18.a1_in1k", # 11.7M
+    "resnet34"        : "resnet34.a1_in1k", # 21.8M
+    "resnet50"        : "resnet50.a1_in1k", #23.5M
+    "convnext_nano"   : "convnextv2_nano.fcmae_ft_in22k_in1k", # 15.6M
+    "convnext_tiny"   : "convnextv2_tiny.fcmae_ft_in22k_in1k", # 28.6M
+    "efficientnet_b3" : "efficientnet_b3.ra2_in1k", # 10M
+    "efficientnet_b4" : "efficientnet_b4.ra2_in1k", # 19.3M
+    "mobilenet-v3-small": "mobilenetv3_small_100.lamb_in1k", # 2M
+    "mobilenet-v3-large": "mobilenetv3_large_100.ra_in1k", # 5.5M
+
 
 }
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
@@ -86,28 +90,30 @@ NUM_WORKERS = 4
 
 ## Robotic Transformer
 ### Encoder
-NUM_RES_BLOCKS = 12
+NUM_RES_BLOCKS = 5
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
+    "convnext_nano": 640,
     "convnext_tiny": 768,
-    "efficientnet_b3": 1536,
-    "efficientnet_b4": 1792,
+    "efficientnet_b3": 384,
+    "efficientnet_b4": 448,
     "resnet50": 2048,
 }
 TEXT_ENC_DROPOUT = 0.15
 EMBEDDING_DIM = 512
+DIM_VL_TOKENS = EMBEDDING_DIM
 
 ### Decoder
-DROPOUT_RATE = .1
+DROPOUT_RATE = .15
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
 TOKEN_LEARNER_DROPOUT = .1
 N_DECODER_LAYERS = 6
 N_HEADS = 8
-EXPANSION = 4
-D_MODEL = 512
+EXPANSION = 2
+D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
 TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)

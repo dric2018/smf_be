@@ -1,4 +1,9 @@
-
+"""
+# Author Information
+======================
+Author: Cedric Manouan
+Last Update: 26 Oct, 2023
+"""
 import albumentations as A
 import config
 from matplotlib import pyplot

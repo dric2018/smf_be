@@ -12,7 +12,9 @@ from utils.data_utils import History
 class RT1Encoder(nn.Module):
     def __init__(
         self,
-        cnn_bacnbone:str="resnet18"
+        cnn_bacnbone:str="efficientnet_b3",
+        num_res_blocks:int=config.NUM_RES_BLOCKS,
+        freeze_cnn_backbone:bool=True
     ):
         super().__init__()
         
@@ -20,7 +22,11 @@ class RT1Encoder(nn.Module):
         self.text_encoder = TextEncoder()
         
         # Image encoder
-        self.film_image_encoder = FiLMEncoder()
+        self.film_image_encoder = FiLMEncoder(
+            arch=cnn_bacnbone, 
+            n_res_blocks=num_res_blocks, 
+            freeze_cnn_backbone=freeze_cnn_backbone
+        )
         
         # Token Learner
         self.token_learner = TokenLearnerModuleV11()
