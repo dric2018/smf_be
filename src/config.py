@@ -30,11 +30,14 @@ DATASET_PATH = "../../../dataset/robot_manipulations/"
 MODEL_PATH = "../../../models/be_model.pt"
 
 # Vocabulary & Maps
-SRC_PAD_TOK_ID = 0
 TARGETS         = ["[SOS]", "[PAD]", "[EOS]"] + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
 TARGET_VOCAB_SIZE = len(TARGETS)
+
+# Special tokens
+SRC_PAD_TOK_ID = 0
+TGT_PAD_TOK_ID = 2
 
 # Inputs & Tokenizer
 # Constants for normalization
@@ -105,6 +108,7 @@ EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
 ### Decoder
+INF = 1e9
 DROPOUT_RATE = .15
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8

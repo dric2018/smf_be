@@ -149,7 +149,92 @@ class MultiHeadSelfAttention(nn.Module):
 
         return combined_output, attention_weights
 
+class CrossAttentionHead(nn.Module):
+    def __init__(
+        self, 
+        embed_dim:int=config.D_MODEL, 
+        dropout_rate:float=config.DROPOUT_RATE
+    ):
+        super().__init__()
 
+        self.embed_dim = embed_dim
+        self.dropout_rate = dropout_rate
+        
+        # Linear transformations for keys, and values for input sequences
+        self.w_k_input = nn.Linear(embed_dim, embed_dim, bias=False)
+        self.w_v_input = nn.Linear(embed_dim, embed_dim, bias=False)
+        
+        # Linear transformation for output sequences
+        self.w_q_output = nn.Linear(embed_dim, embed_dim, bias=False)
+
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self._softmax = nn.Softmax(dim=-1)
+
+    def forward(self, input_seq, output_seq):
+
+        # Linear transformations for both input sequences
+        k_input = self.w_k_input(input_seq)
+        v_input = self.w_v_input(input_seq)
+        
+        # Linear transformations for both output sequences
+        q_output = self.w_q_output(output_seq)
+
+        # Calculate cross-attention scores
+        attn_scores = torch.matmul(q_output, k_input.transpose(-2, -1))
+        attn_scores = attn_scores / math.sqrt(self.embed_dim)
+        
+        # mask padded tokens in input sequence
+        input_mask = (input_seq != config.SRC_PAD_TOK_ID)
+        # mask out corresponding attention scores
+        attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
+
+        # Softmax
+        attn_W = self._softmax(attn_scores)
+        attn_W = self.dropout(attn_W)
+
+        # Calculate cross-attention values
+        attn_out = torch.matmul(attn_W, v_input) 
+
+        return attn_out, attn_W
+        
+
+class MultiHeadCrossAttention(nn.Module):
+    def __init__(
+        self, 
+        embed_dim:int=config.D_MODEL, 
+        num_heads:int=config.N_HEADS, 
+        dropout_rate:float=config.DROPOUT_RATE
+    ):
+        super(MultiHeadCrossAttention, self).__init__()
+        
+        self.d_model = embed_dim
+        self.num_heads = num_heads
+        self.head_dim = self.d_model // self.num_heads
+        self.dropout_rate = dropout_rate
+
+        self.attention_heads = nn.ModuleList([CrossAttentionHead(self.d_model) for _ in range(self.num_heads)])
+
+        
+        self.dropout = nn.Dropout(self.dropout_rate)
+        self._softmax = nn.Softmax(dim=-1)
+
+    def forward(self, input_seq, output_seq):
+        
+        B = input_seq.shape[0]
+        
+        head_outputs = [head(input_seq, output_seq) for head in self.attention_heads]
+        
+        # Combine the results from different heads
+        combined_output = torch.cat(
+            [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
+            dim=-1
+        )
+        attention_weights = torch.stack(
+            [output[1] for output in head_outputs], 
+            dim=1
+        )
+
+        return combined_output, attention_weights
 
 class FeedFowardLayer(nn.Module):
     def __init__(

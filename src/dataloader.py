@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 19 Oct, 2023
+Last Update: 26 Oct, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -33,7 +33,7 @@ from transformers import AutoTokenizer
 
 logging.basicConfig(level="INFO")
 
-class MyEncoding:
+class TargetEncoding:
     def __init__(self, inp:str=None) -> None:
         self.ids = None
         self.tokens = None
@@ -185,7 +185,7 @@ class BEDataset(Dataset):
         
 
         ## target
-        enc_cmd = MyEncoding(inp=data_point.motor_cmd)
+        enc_cmd = TargetEncoding(inp=data_point.motor_cmd)
         
         sample = {
             "sample_id": data_point.sample_ID,
@@ -195,7 +195,7 @@ class BEDataset(Dataset):
                 "ids"       : torch.as_tensor(enc_ad["input_ids"]).long(),
                 "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
                 "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
-                "length"    : data_point.len_action_desc
+                "length"    : data_point.len_action_desc #+ 2 # to account for the sos and eos tokens
             }
         }
 
@@ -205,7 +205,7 @@ class BEDataset(Dataset):
                     "raw"       : data_point.motor_cmd,
                     "ids"       : torch.as_tensor(enc_cmd.ids).long(),
                     "mask"      : torch.as_tensor(enc_cmd.attention_mask).long(),
-                    "length"    : data_point.len_motor_cmd
+                    "length"    : data_point.len_motor_cmd #+ 2 # to account for the sos and eos tokens
                 }
             })
             
@@ -214,60 +214,60 @@ class BEDataset(Dataset):
 
         return sample
 
-    def collate_fn(self, batch):
-        """
+#     def collate_fn(self, batch):
+#         """
         
-        """
-        # imgs
-        batch_input_state = [b["in_state"] for b in batch]
-        batch_input_state_stack = torch.stack(batch_input_state)
+#         """
+#         # imgs
+#         batch_input_state = [b["in_state"] for b in batch]
+#         batch_input_state_stack = torch.stack(batch_input_state)
 
-        # ad
-        batch_action_desc_ids = [b["action_desc"]["ids"] for b in batch]
-        batch_action_desc_ids = pad_sequence(
-            batch_action_desc_ids, 
-            batch_first=True, 
-            padding_value=0
-        )
+#         # ad
+#         batch_action_desc_ids = [b["action_desc"]["ids"] for b in batch]
+#         batch_action_desc_ids = pad_sequence(
+#             batch_action_desc_ids, 
+#             batch_first=True, 
+#             padding_value=0
+#         )
         
-        batch_action_desc_mask = [b["action_desc"]["mask"] for b in batch]
-        batch_action_desc_mask = pad_sequence(
-            batch_action_desc_mask, 
-            batch_first=True, 
-            padding_value=0
-        )
+#         batch_action_desc_mask = [b["action_desc"]["mask"] for b in batch]
+#         batch_action_desc_mask = pad_sequence(
+#             batch_action_desc_mask, 
+#             batch_first=True, 
+#             padding_value=0
+#         )
         
 
-        batch_action_desc_tok_ids = [b["action_desc"]["token_type_ids"] for b in batch]
-        batch_action_desc_tok_ids = pad_sequence(
-            batch_action_desc_tok_ids, 
-            batch_first=True, 
-            padding_value=0
-        )
+#         batch_action_desc_tok_ids = [b["action_desc"]["token_type_ids"] for b in batch]
+#         batch_action_desc_tok_ids = pad_sequence(
+#             batch_action_desc_tok_ids, 
+#             batch_first=True, 
+#             padding_value=0
+#         )
         
-        # print(batch_action_desc)
-        batch_action_desc_lens = torch.as_tensor([b["action_desc"]["length"] for b in batch])
-        # batch_action_desc_lens_stack = torch.tensor(batch_action_desc_lens)
-        # print(batch_action_desc_lens_stack)
+#         # print(batch_action_desc)
+#         batch_action_desc_lens = torch.as_tensor([b["action_desc"]["length"] for b in batch])
+#         # batch_action_desc_lens_stack = torch.tensor(batch_action_desc_lens)
+#         # print(batch_action_desc_lens_stack)
         
-        #cmd
-        batch_motor_commands = [b["motor_cmd"]["ids"] for b in batch]
-        batch_motor_commands = pad_sequence(
-            batch_motor_commands, 
-            batch_first=True, 
-            padding_value=config.TARGETS_MAPPING["[PAD]"]
-        )
-        batch_motor_commands_lens = torch.as_tensor([b["motor_cmd"]["length"] for b in batch])
+#         #cmd
+#         batch_motor_commands = [b["motor_cmd"]["ids"] for b in batch]
+#         batch_motor_commands = pad_sequence(
+#             batch_motor_commands, 
+#             batch_first=True, 
+#             padding_value=config.TARGETS_MAPPING["[PAD]"]
+#         )
+#         batch_motor_commands_lens = torch.as_tensor([b["motor_cmd"]["length"] for b in batch])
         
-        return {
-            "in": batch_input_state_stack, 
-            "ad_ids": batch_action_desc_ids,
-            "ad_mask": batch_action_desc_tok_ids,
-            "ad_tok_ids": batch_action_desc_mask,
-            "ad_len": batch_action_desc_lens, 
-            "cmd": batch_motor_commands, 
-            "cmd_len": batch_motor_commands_lens
-        }
+#         return {
+#             "in": batch_input_state_stack, 
+#             "ad_ids": batch_action_desc_ids,
+#             "ad_mask": batch_action_desc_tok_ids,
+#             "ad_tok_ids": batch_action_desc_mask,
+#             "ad_len": batch_action_desc_lens, 
+#             "cmd": batch_motor_commands, 
+#             "cmd_len": batch_motor_commands_lens
+#         }
 
 class BEDataModule(pl.LightningDataModule):
     def __init__(

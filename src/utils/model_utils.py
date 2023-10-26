@@ -169,3 +169,33 @@ def plot_self_attention(attn_w, example_idx:int=0):
         ax.set_title(f'Head {head_idx + 1}')
 
     pyplot.show()
+    
+def plot_cross_attention(attn_w, inp_seq_lens, outp_seq_lens, example_idx:int=0):
+    
+    num_heads = attn_w.size(1)
+    
+    fig, axes = pyplot.subplots(1, num_heads, figsize=(15, 5))
+    
+    for head_idx in range(num_heads):
+        attention_weights_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()
+        # get input seq len
+        inp_len = inp_seq_lens[example_idx]
+        # get output seq len
+        outp_len = outp_seq_lens[example_idx]
+        
+        #visualize head's attention weights 
+        ax = axes[head_idx]
+        # ax.imshow(attention_weights_example_head, cmap='viridis')
+        # ax.set_title(f'Head {head_idx + 1}')
+        sliced_attention_w = attention_weights_example_head[1:inp_len+1, 1:outp_len+1]
+        # print(sliced_attention_w.shape)
+        im = ax.imshow(sliced_attention_w, cmap='viridis')
+        ax.set_xlabel("output")
+        ax.set_ylabel("input")
+        ax.set_title(f'Head {head_idx + 1}')
+    
+    fig.suptitle("Cross-Attention Heatmaps", fontsize=12)
+    
+    pyplot.tight_layout()
+        
+    pyplot.show()
