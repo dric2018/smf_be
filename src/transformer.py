@@ -55,94 +55,100 @@ def generate_causal_attention_mask():
         
     return ~attn_mask # return inverted mask for causal attention
 
-class MultiHeadAttention(nn.Module):
-    def __init__(
-        self
-    ):
-        super().__init__()
-        
-        self.inf = 1e9        
-        self.d_k = config.D_K
-        self.n_heads = config.N_HEADS
-        self.embed_dim = config.D_MODEL
-        
-        # W^Q, W^K, W^V in the paper
-        self.w_q = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-        self.w_k = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
-        self.w_v = nn.Linear(self.embed_dim, self.embed_dim, bias=False)
 
+class SelfAttentionHead(nn.Module):
+    def __init__(self, d_model:int=config.D_MODEL):
+        super(SelfAttentionHead, self).__init__()
+        self.inf = 1e9
+        self.d_k = d_model
+        
         self.dropout = nn.Dropout(config.DROPOUT_RATE)
         self._softmax = nn.Softmax(dim=-1)
 
-        # Final output linear transformation
-        self.output_layer = nn.Linear(self.embed_dim, self.embed_dim)
-
-    def forward(self, q, k, v, mask=None, return_weights:bool=False):
-        """
-        Args:
-           k : key vector
-           q : query vector
-           v : value vector
-           mask: mask for decoder
-           return_weights: whether to return attentio weights or not (defaul: False)
+        self.w_q = nn.Linear(d_model, d_model, bias=False)
+        self.w_k = nn.Linear(d_model, d_model, bias=False)
+        self.w_v = nn.Linear(d_model, d_model, bias=False)
         
-        Returns:
-           self_attention_outputs : (out, attn_W)
-        """
-        input_shape = q.shape
-        
-        print(f"q: {q.shape} - k: {k.shape} - v: {v.shape} ")
-        if mask is not None:
-            print(f"mask: {mask.shape}")
-        
-        # Linear calculation +  split into num_heads
-        q = self.w_q(q).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
-        k = self.w_k(k).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
-        v = self.w_v(v).view(input_shape[0], -1, self.n_heads, self.d_k) # (B, L, num_heads, d_k)
-
-        # For convenience, convert all tensors in size (B, num_heads, L, d_k)
-        q = q.transpose(1, 2)
-        k = k.transpose(1, 2)
-        v = v.transpose(1, 2)
-
-        # Conduct self-attention
-        attn_values, attn_W = self.self_attention(q, k, v, mask=mask, return_weights=return_weights) # (B, num_heads, L, d_k)
-        concat_output = attn_values.transpose(1, 2)\
-            .contiguous().view(input_shape[0], -1, self.embed_dim) # (B, L, config.D_MODEL)
-        
-        out = self.output_layer(concat_output)
-        
-        return out, attn_W
+        self.output_layer = nn.Linear(d_model, d_model)
 
     def self_attention(
         self, 
-        q:torch.Tensor, 
-        k:torch.Tensor, 
-        v:torch.Tensor, 
-        mask:torch.Tensor=None, 
-        return_weights:bool=False
+        inp:torch.Tensor, 
+        mask=None, 
+        return_weights=True
+    ):
+        # Linear calculation
+        q = self.w_q(inp)
+        k = self.w_k(inp)
+        v = self.w_v(inp)
+
+        # Scaled Dot-Product Attention
+        matmul_qk = torch.matmul(q, k.transpose(-2, -1))
+        scaled_attention_logits = matmul_qk / math.sqrt(self.d_k)
+
+        if mask is not None:
+            scaled_attention_logits += (mask * -self.inf)
+
+        attention_weights = self._softmax(scaled_attention_logits)
+        attention_weights = self.dropout(attention_weights)
+
+        output = torch.matmul(attention_weights, v)
+
+        if return_weights:
+            return output, attention_weights
+        else:
+            return output, None
+
+    def forward(
+        self, 
+        inp:torch.Tensor, 
+        mask=None, 
+        return_weights=False
     ):
         
-        # Calculate attention scores with scaled dot-product attention
-        attn_scores = torch.matmul(q, k.transpose(-2, -1)) # (B, num_heads, L, L)
-        attn_scores = attn_scores / math.sqrt(self.d_k)
-
-        # If there is a mask, make masked spots -INF
-        if mask is not None:
-            mask = mask.unsqueeze(1) # (B, 1, L) => (B, 1, 1, L) or (B, L, L) => (B, 1, L, L)
-            attn_scores = attn_scores.masked_fill_(mask == 0, -1 * self.inf)
-
-        # Softmax 
-        attn_W = self._softmax(attn_scores)
-        attn_W = self.dropout(attn_W)
+        attn_values, attn_W = self.self_attention(
+            inp, 
+            mask=mask, 
+            return_weights=return_weights
+        )
         
-        # Calculate values
-        attn_values = torch.matmul(attn_W, v) # (B, num_heads, L, d_k)
+        return attn_values, attn_W
+
+class MultiHeadSelfAttention(nn.Module):
+    def __init__(
+        self, 
+        d_model:int=config.D_MODEL, 
+        num_heads:int=config.N_HEADS
+    ):
+        super(MultiHeadSelfAttention, self).__init__()
         
-        if return_weights:
-            return attn_values, attn_W
-        else:
-            return attn_values, None
+        self.num_heads = num_heads
+        self.head_dim = d_model // num_heads
+
+        self.attention_heads = nn.ModuleList([SelfAttentionHead(d_model) for _ in range(num_heads)])
+
+    def forward(
+        self, 
+        inp:torch.Tensor,  
+        mask=None, 
+        return_weights=True
+    ):
+        B = inp.shape[0]
+        
+        head_outputs = [head(inp, mask=mask, return_weights=return_weights) for head in self.attention_heads]
+
+        # Combine the results from different heads
+        combined_output = torch.cat(
+            [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
+            dim=-1
+        )
+        attention_weights = torch.stack(
+            [output[1] for output in head_outputs], 
+            dim=1
+        )
+
+        return combined_output, attention_weights
+
 
 
 class FeedFowardLayer(nn.Module):
@@ -183,7 +189,7 @@ class LayerNormalization(nn.Module):
 class PositionalEncoder(nn.Module):
     def __init__(
         self,
-        seq_len:int=NUM_TOKENIZED_INPUTS
+        seq_len:int=config.NUM_TOKENIZED_INPUTS
     ):
         super().__init__()
         # Make initial positional encoding matrix with 0

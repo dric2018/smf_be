@@ -72,6 +72,12 @@ class BEDataset(Dataset):
         super().__init__()
 
         self.tokenizer          = AutoTokenizer.from_pretrained(config.LANG_MODEL_NAME)
+        self.included_special_tokens = [
+            self.tokenizer.cls_token_id, 
+            self.tokenizer.sep_token_id, 
+            self.tokenizer.pad_token_id
+        ]
+
         self.dataset_directory  = config.DATASET_PATH
         self.df                 = df.copy()
         self.task               = task
@@ -113,6 +119,9 @@ class BEDataset(Dataset):
         """
         decoded_text = " ".join([config.TARGETS_REVERSE_MAPPING[idx] for idx in ids if idx not in [0, 1, 2]])        
         return decoded_text
+    
+    def _get_seq_len(self, ids):
+        pass
     
     def __getitem__(self, idx, return_goal:bool=False):
         """
