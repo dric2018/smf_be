@@ -62,14 +62,17 @@ class SelfAttentionHead(nn.Module):
         self.inf = 1e9
         self.d_k = d_model
         
-        self.dropout = nn.Dropout(config.DROPOUT_RATE)
+        self.dropout = nn.Dropout(p=config.DROPOUT_RATE)
         self._softmax = nn.Softmax(dim=-1)
 
         self.w_q = nn.Linear(d_model, d_model, bias=False)
         self.w_k = nn.Linear(d_model, d_model, bias=False)
         self.w_v = nn.Linear(d_model, d_model, bias=False)
         
-        self.output_layer = nn.Linear(d_model, d_model)
+        self.output_layer = nn.Sequential(
+            nn.Linear(config.SELF_ATTENTION_OUT_DIM, d_model, bias=False),
+            nn.Dropout(p=config.DROPOUT_RATE)
+        )
 
     def self_attention(
         self, 
@@ -77,6 +80,8 @@ class SelfAttentionHead(nn.Module):
         mask=None, 
         return_weights=True
     ):
+        B, L, D = inp.shape
+        
         # Linear calculation
         q = self.w_q(inp)
         k = self.w_k(inp)
@@ -92,8 +97,11 @@ class SelfAttentionHead(nn.Module):
         attention_weights = self._softmax(scaled_attention_logits)
         attention_weights = self.dropout(attention_weights)
 
-        output = torch.matmul(attention_weights, v)
-
+        output = torch.matmul(attention_weights, v) # (B, L, num_heads, D)
+        output = output.contiguous().view(B, -1, D)
+        
+        output = self.output_layer(output)
+        
         if return_weights:
             return output, attention_weights
         else:
@@ -120,7 +128,7 @@ class MultiHeadSelfAttention(nn.Module):
         d_model:int=config.D_MODEL, 
         num_heads:int=config.N_HEADS
     ):
-        super(MultiHeadSelfAttention, self).__init__()
+        super().__init__()
         
         self.num_heads = num_heads
         self.head_dim = d_model // num_heads
