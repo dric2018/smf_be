@@ -170,7 +170,12 @@ def plot_self_attention(attn_w, example_idx:int=0):
 
     pyplot.show()
     
-def plot_cross_attention(attn_w, inp_seq_lens, outp_seq_lens, example_idx:int=0):
+def plot_cross_attention(
+    attn_w, 
+    inp_seq_lens=None, 
+    outp_seq_lens=None, 
+    example_idx:int=0
+):
     
     num_heads = attn_w.size(1)
     
@@ -178,17 +183,20 @@ def plot_cross_attention(attn_w, inp_seq_lens, outp_seq_lens, example_idx:int=0)
     
     for head_idx in range(num_heads):
         attention_weights_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()
-        # get input seq len
-        inp_len = inp_seq_lens[example_idx]
-        # get output seq len
-        outp_len = outp_seq_lens[example_idx]
-        
         #visualize head's attention weights 
         ax = axes[head_idx]
-        # ax.imshow(attention_weights_example_head, cmap='viridis')
-        # ax.set_title(f'Head {head_idx + 1}')
-        sliced_attention_w = attention_weights_example_head[1:inp_len+1, 1:outp_len+1]
+        
+        if inp_seq_lens is not None and outp_seq_lens is not None:
+            # get input seq len
+            inp_len = inp_seq_lens[example_idx]
+            # get output seq len
+            outp_len = outp_seq_lens[example_idx]
+            sliced_attention_w = attention_weights_example_head[1:inp_len+1, 1:outp_len+1]
         # print(sliced_attention_w.shape)
+        
+        else:
+            sliced_attention_w = attention_weights_example_head
+            
         im = ax.imshow(sliced_attention_w, cmap='viridis')
         ax.set_xlabel("output")
         ax.set_ylabel("input")

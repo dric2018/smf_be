@@ -68,11 +68,6 @@ class SelfAttentionHead(nn.Module):
         self.w_q = nn.Linear(d_model, d_model, bias=False)
         self.w_k = nn.Linear(d_model, d_model, bias=False)
         self.w_v = nn.Linear(d_model, d_model, bias=False)
-        
-        self.output_layer = nn.Sequential(
-            nn.Linear(config.SELF_ATTENTION_OUT_DIM, d_model, bias=False),
-            nn.Dropout(p=config.DROPOUT_RATE)
-        )
 
     def self_attention(
         self, 
@@ -97,11 +92,7 @@ class SelfAttentionHead(nn.Module):
         attention_weights = self._softmax(scaled_attention_logits)
         attention_weights = self.dropout(attention_weights)
 
-        output = torch.matmul(attention_weights, v) # (B, L, num_heads, D)
-        output = output.contiguous().view(B, -1, D)
-        
-        output = self.output_layer(output)
-        
+        output = torch.matmul(attention_weights, v) # (B, L, num_heads, D)        
         if return_weights:
             return output, attention_weights
         else:
@@ -134,17 +125,22 @@ class MultiHeadSelfAttention(nn.Module):
         self.head_dim = d_model // num_heads
 
         self.attention_heads = nn.ModuleList([SelfAttentionHead(d_model) for _ in range(num_heads)])
-
+        
+        self.output_layer = nn.Sequential(
+            nn.Linear(config.SELF_ATTENTION_OUT_DIM, d_model, bias=False),
+            nn.Dropout(p=config.DROPOUT_RATE)
+        )
+        
     def forward(
         self, 
         inp:torch.Tensor,  
         mask=None, 
         return_weights=True
     ):
-        B = inp.shape[0]
+        B, L, D = inp.shape
         
         head_outputs = [head(inp, mask=mask, return_weights=return_weights) for head in self.attention_heads]
-
+        
         # Combine the results from different heads
         combined_output = torch.cat(
             [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
@@ -154,6 +150,10 @@ class MultiHeadSelfAttention(nn.Module):
             [output[1] for output in head_outputs], 
             dim=1
         )
+        
+        combined_output = combined_output.contiguous().view(B, L, -1)
+        
+        combined_output = self.output_layer(combined_output)        
 
         return combined_output, attention_weights
 
@@ -178,8 +178,10 @@ class CrossAttentionHead(nn.Module):
         self.dropout = nn.Dropout(self.dropout_rate)
         self._softmax = nn.Softmax(dim=-1)
 
-    def forward(self, input_seq, output_seq):
-
+    def forward(self, input_seq, input_lens, output_seq, apply_mask=False):
+        
+        B, max_len = input_seq.shape[0], input_seq.shape[1]
+        
         # Linear transformations for both input sequences
         k_input = self.w_k_input(input_seq)
         v_input = self.w_v_input(input_seq)
@@ -191,10 +193,13 @@ class CrossAttentionHead(nn.Module):
         attn_scores = torch.matmul(q_output, k_input.transpose(-2, -1))
         attn_scores = attn_scores / math.sqrt(self.embed_dim)
         
-        # mask padded tokens in input sequence
-        input_mask = (input_seq != config.SRC_PAD_TOK_ID)
-        # mask out corresponding attention scores
-        attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
+        if apply_mask:
+            # mask padded tokens in input sequence
+            input_mask = torch.arange(max_len).expand(B, -1) < input_lens.view(-1, 1)
+            input_mask = input_mask.to(attn_scores.device)
+
+            # mask out corresponding attention scores
+            attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
 
         # Softmax
         attn_W = self._softmax(attn_scores)
@@ -213,7 +218,7 @@ class MultiHeadCrossAttention(nn.Module):
         num_heads:int=config.N_HEADS, 
         dropout_rate:float=config.DROPOUT_RATE
     ):
-        super(MultiHeadCrossAttention, self).__init__()
+        super().__init__()
         
         self.d_model = embed_dim
         self.num_heads = num_heads
@@ -226,11 +231,17 @@ class MultiHeadCrossAttention(nn.Module):
         self.dropout = nn.Dropout(self.dropout_rate)
         self._softmax = nn.Softmax(dim=-1)
 
-    def forward(self, input_seq, output_seq):
+    def forward(
+        self, 
+        input_seq, 
+        input_lens, 
+        output_seq, 
+        apply_mask=False
+    ):
         
         B = input_seq.shape[0]
         
-        head_outputs = [head(input_seq, output_seq) for head in self.attention_heads]
+        head_outputs = [head(input_seq, input_lens, output_seq, apply_mask) for head in self.attention_heads]
         
         # Combine the results from different heads
         combined_output = torch.cat(
