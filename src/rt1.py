@@ -1,10 +1,13 @@
 
 
 import config
+
 from film_layers import FiLMEncoder
+
 from token_learner import TokenLearnerModuleV11
 import torch
 import torch.nn as nn
+from transformer import PositionalEncoder, MultiHeadSelfAttention, MultiHeadCrossAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
 from utils.model_utils import TextEncoder
 from utils.data_utils import History
@@ -81,4 +84,63 @@ class RT1Encoder(nn.Module):
             
             
         return src_enc, tokenized_inputs.view(B, -1, config.D_MODEL)
+
+    
+    
+class CustomPooling(nn.Module):
+    def __init__(
+        self, 
+        num_history:int=config.NUM_HISTORY+1,
+        avg_on:str="frames"
+    ):
+        super().__init__()
         
+        self.avg_on = avg_on
+        self.num_history = num_history
+
+    def forward(self, attended_tokens):
+        
+        B, _, D = attended_tokens.shape
+        
+        attended_tokens = attended_tokens.view(
+            B, 
+            (1+config.NUM_HISTORY), 
+            config.NUM_LEARNED_TOKENS, 
+            D
+        )
+        
+        if self.avg_on == "frames":
+            pooled_output = torch.mean(attended_tokens, dim=1) # avg on frames
+        else:
+            pooled_output = torch.mean(attended_tokens, dim=2) # avg on learned tokens
+        
+        return pooled_output
+    
+class ActionGenerator(nn.Module):
+    def __init__(
+        self,
+        d_model:int=config.D_MODEL, 
+        vocab_size:int=len(config.TARGETS),
+        action_bins:int=config.ACTION_BINS,
+        num_actons:int=config.NUM_ACTION_SLOTS
+    ):
+        super().__init__()
+        
+        # attrs
+        self.action_bins = action_bins
+        
+        # layers
+        self.pooler = CustomPooling()
+        self.norm = LayerNormalization()
+        self.proj = nn.Linear(in_features=d_model, out_features=vocab_size)
+        self._softmax = nn.LogSoftmax(dim=-1)
+
+    def forward(self, tokens):
+        
+        out = self.pooler(tokens)
+        out = self.norm(out)
+        out = self.proj(out)
+        out = self._softmax(out)
+        
+        return out
+    

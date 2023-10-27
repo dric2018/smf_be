@@ -165,7 +165,7 @@ def plot_self_attention(attn_w, example_idx:int=0):
 
         # Visualize the attention weights as a heatmap in the corresponding subplot
         ax = axes[head_idx]
-        ax.imshow(attn_w_example_head, cmap='coolwarm')
+        ax.imshow(attn_w_example_head, cmap='viridis')
         ax.set_title(f'Head {head_idx + 1}')
 
     pyplot.show()

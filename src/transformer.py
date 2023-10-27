@@ -92,11 +92,11 @@ class SelfAttentionHead(nn.Module):
         attention_weights = self._softmax(scaled_attention_logits)
         attention_weights = self.dropout(attention_weights)
 
-        output = torch.matmul(attention_weights, v) # (B, L, num_heads, D)        
+        context = torch.matmul(attention_weights, v) # (B, L, num_heads, D)        
         if return_weights:
-            return output, attention_weights
+            return context, attention_weights
         else:
-            return output, None
+            return context, None
 
     def forward(
         self, 
@@ -105,13 +105,13 @@ class SelfAttentionHead(nn.Module):
         return_weights=False
     ):
         
-        attn_values, attn_W = self.self_attention(
+        context, attn_W = self.self_attention(
             inp, 
             mask=mask, 
             return_weights=return_weights
         )
         
-        return attn_values, attn_W
+        return context, attn_W
 
 class MultiHeadSelfAttention(nn.Module):
     def __init__(
@@ -153,9 +153,9 @@ class MultiHeadSelfAttention(nn.Module):
         
         combined_output = combined_output.contiguous().view(B, L, -1)
         
-        combined_output = self.output_layer(combined_output)        
+        context = self.output_layer(combined_output)        
 
-        return combined_output, attention_weights
+        return context, attention_weights
 
 class CrossAttentionHead(nn.Module):
     def __init__(
@@ -206,9 +206,9 @@ class CrossAttentionHead(nn.Module):
         attn_W = self.dropout(attn_W)
 
         # Calculate cross-attention values
-        attn_out = torch.matmul(attn_W, v_input) 
+        context = torch.matmul(attn_W, v_input) 
 
-        return attn_out, attn_W
+        return context, attn_W
         
 
 class MultiHeadCrossAttention(nn.Module):
@@ -244,7 +244,7 @@ class MultiHeadCrossAttention(nn.Module):
         head_outputs = [head(input_seq, input_lens, output_seq, apply_mask) for head in self.attention_heads]
         
         # Combine the results from different heads
-        combined_output = torch.cat(
+        context = torch.cat(
             [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
             dim=-1
         )
@@ -253,7 +253,7 @@ class MultiHeadCrossAttention(nn.Module):
             dim=1
         )
 
-        return combined_output, attention_weights
+        return context, attention_weights
 
 class FeedFowardLayer(nn.Module):
     def __init__(
@@ -321,25 +321,27 @@ class TransformerDecoderLayer(nn.Module):
     def __init__(
         self, 
         d_model:int=config.D_MODEL, 
-        nhead:int=config.N_HEADS, 
+        n_selfattention_heads:int=config.N_HEADS, 
+        n_crossattention_heads:int=config.N_HEADS,
         dim_feedforward:int=config.D_FF, 
         dropout:float=config.DECODER_DROPOUT_RATE
     ):
         super().__init__()
 
         # Multi-head self-attention
-        self.self_attn = MultiHeadAttention()
+        self.self_attn = MultiHeadSelfAttention(num_heads=n_selfattention_heads)
+        
+        # Multi-head Cross-attention
+        self.cross_attn = MultiHeadCrossAttention(num_heads=n_crossattention_heads)
         
         # Layer normalization 1
-        self.norm1 = nn.LayerNorm(d_model)
+        self.norm1 = LayerNormalization()
         
-        self.multihead_attn = MultiHeadAttention()
-
         # Layer normalization 2
-        self.norm2 = nn.LayerNorm(d_model)
+        self.norm2 = LayerNormalization()
         
         # Position-wise feed-forward network
-        self.ffn = nn.Sequential(
+        self.ff = nn.Sequential(
             nn.Linear(d_model, dim_feedforward),
             nn.GELU(),
             nn.Linear(dim_feedforward, d_model)
@@ -351,33 +353,63 @@ class TransformerDecoderLayer(nn.Module):
         # Dropout
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, src, encoder_outputs, y=None, src_mask=None, y_mask=None):
+    def forward(
+        self, 
+        tokens:torch.Tensor, 
+        inp_lens:torch.Tensor,
+        self_mask:torch.Tensor=None, 
+        cross_mask:torch.tensor=None,
+        return_weights:bool=True,
+        debug:bool=False
+    ):
         
-        if src_mask is None:
-            src_mask, y_mask = generate_masks(src, y)
+        inp = tokens # reserve this for cross attention
         
-        # Multi-head self-attention
-        self_attn_output = self.self_attn(src, src, src, mask=y_mask)
-        # Apply dropout and add the residual connection
-        src = src + self.dropout(self_attn_output)
+        if debug:
+            print(f"inp shape: {inp.shape}")
         # Layer normalization 1
-        src = self.norm1(src)
-        # Multi-head attention over encoder outputs
-        multihead_attn_output = self.multihead_attn(src, encoder_outputs, encoder_outputs, mask=src_mask)
+        inp_ = self.norm1(inp)
+        if debug:
+            print(f"LN 1 out shape: {inp_.shape}")
+
+        # Multi-head self-attention
+        self_attn_W = None
+        self_attn_output = self.self_attn(inp_, mask=self_mask)
+        
+        if return_weights:
+            inp_, self_attn_W = self_attn_output
+        else:
+            inp_ = self_attn_output
+        
+        if debug:
+            print(f"MHSA out : {inp_.shape}")
         # Apply dropout and add the residual connection
-        src = src + self.dropout(multihead_attn_output)
+        tokens = tokens + self.dropout(inp_)
+        
         # Layer normalization 2
-        src = self.norm2(src)
-        # Position-wise feed-forward network
-        ffn_output = self.ffn(src)
-        # Apply dropout and add the residual connection
-        src = src + self.dropout(ffn_output)
-        # Layer normalization 3
-        src = self.norm3(src)
+        out = self.norm2(tokens)
+        if debug:
+            print(f"LN 2 out shape: {out.shape}")
+        # Apply FF
+        ff_out = self.dropout(self.ff(out))
+        if debug:
+            print(f"FF out shape: {ff_out.shape}")
+        # Add the residual connection
+        tokens = tokens + ff_out
+        
+        # compute cross attention between encoder's outputs and decoder's prev. hidden states
+        cross_attn_out, cross_attn_W = self.cross_attn(inp, inp_lens, tokens, apply_mask=cross_mask)
+        
+        if debug:
+            print(f"MHCA out : {cross_attn_out.shape}")
+        
+        if debug:
+            print(f"Final out shape: {tokens.shape}")
+            
+        return tokens, self_attn_W, cross_attn_W
 
-        return src
     
-
+    
 class TransformerDecoder(nn.Module):
     def __init__(
         self, 
@@ -386,11 +418,15 @@ class TransformerDecoder(nn.Module):
         super().__init__()
         
         self.num_layers = num_layers
-        self.target_embedding = nn.Embedding(
-            num_embeddings=config.TARGET_VOCAB_SIZE, 
-            embedding_dim=config.D_MODEL, 
-            padding_idx=config.TARGETS_MAPPING["[PAD]"]
+
+        # token embedding
+        self.token_embedding = nn.Linear(
+            in_features=config.D_MODEL, 
+            out_features=config.EMBEDDING_DIM,
+            bias=False
         )
+               
+        # transformer layers
         self.layers = nn.ModuleList([
             TransformerDecoderLayer()
             for _ in range(num_layers)
@@ -405,11 +441,33 @@ class TransformerDecoder(nn.Module):
             if p.dim() > 1:
                 nn.init.xavier_uniform(p)
             
-    def forward(self, src, encoder_outputs, y=None, src_mask=None, y_mask=None):
-        if y_mask is None or src_mask is None:
-            src, y_mask = generate_masks(src, y)
+    def forward(
+        self, 
+        inp:torch.Tensor, 
+        inp_lens:torch.Tensor,
+        self_mask:torch.Tensor=None, 
+        cross_mask:torch.tensor=None,        
+        debug:bool=False
+    ):        
+        # embed tokens
+        inp = self.token_embedding(inp)
+        
+        # run self-attention modules
+        self_attn_Ws = []
+        cross_attn_Ws = []
+        
         for layer in self.layers:
-            src = layer(src, encoder_outputs, src_mask, y_mask)
-
-        return src
-    
+            inp, self_attn_W, cross_attn_W = layer(
+                inp, 
+                inp_lens, 
+                self_mask=self_mask, 
+                cross_mask=cross_mask,
+                debug=debug
+            )
+            # store attention weights
+            self_attn_Ws.append(self_attn_W)
+            cross_attn_Ws.append(cross_attn_W)
+        
+        self_attn_Ws, cross_attn_Ws = torch.cat(self_attn_Ws, dim=0), torch.cat(cross_attn_Ws, dim=0)
+        
+        return inp, self_attn_Ws, cross_attn_Ws
