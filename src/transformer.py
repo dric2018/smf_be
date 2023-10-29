@@ -41,17 +41,38 @@ def generate_masks(src_sequence, target_sequence=None):
         
     return src_mask, target_mask
 
-def generate_causal_attention_mask():
+def generate_causal_attention_mask(
+    dim:int=config.NUM_HISTORY+1,
+    num_learned_tokens:int=config.NUM_LEARNED_TOKENS,
+    for_learned_tokens:bool=False
+):
     """
         Args:
-            None
+            dim: (int) size to be used to create causal attention mask
 
         Returns: 
-            attn_mask: causal attention mask matching the shape of the learned tokens
+            attn_mask: causal attention mask of shape (1, seq_len, seq_len)
     """
     
-    attn_mask = torch.ones((config.NUM_HISTORY+1, config.NUM_HISTORY+1), dtype = torch.bool, device = config.DEVICE).triu(1)
-    attn_mask = repeat(attn_mask, 'i j -> (i r1) (j r2)', r1 = config.NUM_LEARNED_TOKENS, r2 = config.NUM_LEARNED_TOKENS)
+    if for_learned_tokens:
+        attn_mask = torch.ones(
+            (dim, dim), 
+            dtype = torch.bool, 
+            # device = config.DEVICE
+        ).triu(1)
+
+        attn_mask = repeat(
+            attn_mask, 
+            'i j -> (i d1) (j d2)', 
+            d1 = num_learned_tokens, 
+            d2 = num_learned_tokens
+        ).unsqueeze(0)
+    else:
+        attn_mask = torch.ones(
+            (1, dim, dim), 
+            dtype = torch.bool, 
+            # device = config.DEVICE
+        ).triu(1)
         
     return ~attn_mask # return inverted mask for causal attention
 

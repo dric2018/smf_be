@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 26 Oct, 2023
+Last Update: 29 Oct, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -29,7 +29,7 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer
-
+from transformer import generate_causal_attention_mask
 
 logging.basicConfig(level="INFO")
 
@@ -38,7 +38,7 @@ class TargetEncoding:
         self.ids = None
         self.tokens = None
         self.attention_mask = None
-        self.pad_id = config.TARGETS.index("[EOS]")
+        self.pad_id = config.TARGETS.index("[PAD]")
 
         if inp is not None:
             self._encode(inp)
@@ -50,17 +50,20 @@ class TargetEncoding:
         return full_string.split()
     
     def _encode(self, inp:str):
-        tokens                  = self.tokenize_by_space("[SOS] "+inp+" [EOS]")
-        token_ids               = [config.TARGETS_MAPPING[t] for t in tokens]
-        attention_mask          = [1 for _ in range(len(token_ids))]
+        dec_inp_tokens                  = self.tokenize_by_space("[SOS] "+inp)
+        dec_inp_token_ids               = [config.TARGETS_MAPPING[t] for t in dec_inp_tokens]
+        len_dec_inputs                  = len(dec_inp_token_ids)
+        
+        labels = self.tokenize_by_space(inp+" [EOS]")
+        label_token_ids               = [config.TARGETS_MAPPING[t] for t in labels]
         
         # compute padding length
-        padding_len             = config.MAX_LEN - len(token_ids)
-
-        self.ids                = token_ids + ([self.pad_id] * padding_len)
-        self.attention_mask     = attention_mask + ([0] * padding_len)
-
-
+        padding_len             = config.MAX_LEN - len_dec_inputs
+        self.dec_inp_token_ids  = dec_inp_token_ids + ([self.pad_id] * padding_len)
+        self.label_token_ids    = label_token_ids + ([self.pad_id] * padding_len)
+        
+        # create causal attention mask
+        self.attention_mask = generate_causal_attention_mask(dim=len_dec_inputs+padding_len)
 
 class BEDataset(Dataset):
     def __init__(
@@ -187,25 +190,31 @@ class BEDataset(Dataset):
         ## target
         enc_cmd = TargetEncoding(inp=data_point.motor_cmd)
         
+        # prepare encoder inputs
+        encoder_inp = torch.as_tensor(enc_ad["input_ids"]).long()
         sample = {
             "sample_id": data_point.sample_ID,
             "in_state": in_state,
             "action_desc": {
                 "raw"       : data_point.action_description,
-                "ids"       : torch.as_tensor(enc_ad["input_ids"]).long(),
+                "ids"       : encoder_inp,
                 "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
                 "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
-                "length"    : data_point.len_action_desc #+ 2 # to account for the sos and eos tokens
             }
         }
 
         if self.task == "train":
+            dec_inp = torch.as_tensor(enc_cmd.dec_inp_token_ids).long()
+            labels  = torch.as_tensor(enc_cmd.label_token_ids).long()
+           
+            # prepare targets
             sample.update({
                 "motor_cmd": {
                     "raw"       : data_point.motor_cmd,
-                    "ids"       : torch.as_tensor(enc_cmd.ids).long(),
-                    "mask"      : torch.as_tensor(enc_cmd.attention_mask).long(),
-                    "length"    : data_point.len_motor_cmd #+ 2 # to account for the sos and eos tokens
+                    "decoder_inp_ids"       : dec_inp,
+                    "labels":  labels, 
+                    "source_mask"      : (encoder_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
+                    "target_mask"      : (dec_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0) & enc_cmd.attention_mask
                 }
             })
             
@@ -214,83 +223,28 @@ class BEDataset(Dataset):
 
         return sample
 
-#     def collate_fn(self, batch):
-#         """
-        
-#         """
-#         # imgs
-#         batch_input_state = [b["in_state"] for b in batch]
-#         batch_input_state_stack = torch.stack(batch_input_state)
-
-#         # ad
-#         batch_action_desc_ids = [b["action_desc"]["ids"] for b in batch]
-#         batch_action_desc_ids = pad_sequence(
-#             batch_action_desc_ids, 
-#             batch_first=True, 
-#             padding_value=0
-#         )
-        
-#         batch_action_desc_mask = [b["action_desc"]["mask"] for b in batch]
-#         batch_action_desc_mask = pad_sequence(
-#             batch_action_desc_mask, 
-#             batch_first=True, 
-#             padding_value=0
-#         )
-        
-
-#         batch_action_desc_tok_ids = [b["action_desc"]["token_type_ids"] for b in batch]
-#         batch_action_desc_tok_ids = pad_sequence(
-#             batch_action_desc_tok_ids, 
-#             batch_first=True, 
-#             padding_value=0
-#         )
-        
-#         # print(batch_action_desc)
-#         batch_action_desc_lens = torch.as_tensor([b["action_desc"]["length"] for b in batch])
-#         # batch_action_desc_lens_stack = torch.tensor(batch_action_desc_lens)
-#         # print(batch_action_desc_lens_stack)
-        
-#         #cmd
-#         batch_motor_commands = [b["motor_cmd"]["ids"] for b in batch]
-#         batch_motor_commands = pad_sequence(
-#             batch_motor_commands, 
-#             batch_first=True, 
-#             padding_value=config.TARGETS_MAPPING["[PAD]"]
-#         )
-#         batch_motor_commands_lens = torch.as_tensor([b["motor_cmd"]["length"] for b in batch])
-        
-#         return {
-#             "in": batch_input_state_stack, 
-#             "ad_ids": batch_action_desc_ids,
-#             "ad_mask": batch_action_desc_tok_ids,
-#             "ad_tok_ids": batch_action_desc_mask,
-#             "ad_len": batch_action_desc_lens, 
-#             "cmd": batch_motor_commands, 
-#             "cmd_len": batch_motor_commands_lens
-#         }
-
 class BEDataModule(pl.LightningDataModule):
     def __init__(
             self
         ) -> None:
         super().__init__()
 
-        self.df = pd.read_csv(osp.join(config.DATASET_PATH, "train.csv"))
-
+        self.train_df = pd.read_csv(osp.join(config.DATASET_PATH, "train.csv"))
+        self.test_df = pd.read_csv(osp.join(config.DATASET_PATH, "test.csv"))
         
     def setup(self, stage=None):
         """
             Defines all the operations to perform while building the datasets
         """
         # shuffle dataframe
-        self.df = self.df.sample(frac=1.).reset_index(drop=True)
-        print(f"Total # examples: {len(self.df)}")
+        self.train_df = self.train_df.sample(frac=1.).reset_index(drop=True)
+        print(f"Total # examples: {len(self.train_df)}")
         
         # train/val split
-        random_indices = np.random.rand(len(self.df)) < (1-config.VALIDATION_PCT)
+        random_indices = np.random.rand(len(self.train_df)) < (1-config.VALIDATION_PCT)
 
-        train = self.df[random_indices].reset_index(drop=True)
-        val = self.df[~random_indices].reset_index(drop=True)
+        train = self.train_df[random_indices].reset_index(drop=True)
+        val = self.train_df[~random_indices].reset_index(drop=True)
 
         # train dataset
         self.train_ds = BEDataset(
@@ -314,7 +268,19 @@ class BEDataModule(pl.LightningDataModule):
             logging.info(
                 f'Validating on {validation_data_size} samples.'
             )
+            
+        #  test dataset
+        self.test_ds = BEDataset(
+                df=self.test_df,
+                task='test'
+            )
+        test_data_size = len(self.test_ds)
 
+        logging.info(
+            f'Testing on {test_data_size} samples.'
+        )
+                    
+        
     def train_dataloader(self):
         """
             Defines the structure of the training dataloader
@@ -337,6 +303,18 @@ class BEDataModule(pl.LightningDataModule):
             shuffle=False,
             num_workers=config.NUM_WORKERS,
             pin_memory=True,
+            drop_last=True
+        )
+    
+    def test_dataloader(self):
+        """
+            Defines the structure of the Test dataloader
+        """
+        return DataLoader(
+            dataset=self.test_ds,
+            batch_size=config.BATCH_SIZE,
+            shuffle=False,
+            num_workers=config.NUM_WORKERS,
             drop_last=True
         )
 
