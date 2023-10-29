@@ -155,35 +155,56 @@ class VisionLanguageHead(nn.Module):
 
 def plot_attention(attn_w, example_idx:int=0):
     
+    num_layers = 1
     
     if attn_w.ndim > 3:
-        B, num_heads, L1, L2 = attn_w.shape
+        if attn_w.ndim >=4:
+            # multi layer plot
+            B, num_layers, num_heads, L1, L2 = attn_w.shape
+        else:
+            B, num_heads, L1, L2 = attn_w.shape
         
         if L1 != L2:
-            # cross attention plot
+            # -attention plot
             x_axis_title = "Input"
             y_axis_title = "Output"
         else:
+            # self-attention plot
             x_axis_title = "Input seq"
-            y_axis_title = "Output seq"        
-        fig, axes = pyplot.subplots(1, num_heads, figsize=(15, 5))
+            y_axis_title = "Input seq"        
         
-        for head_idx in range(num_heads):
-            # Extract attention weights for the chosen example and head
-            attn_w_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()
+        fig, axes = pyplot.subplots(num_layers, num_heads, figsize=(15, 5))
+        
+        if num_layers:
+            for l in range(num_layers):
+                for head_idx in range(num_heads):
+                    # Extract attention weights for the chosen example and head
+                    attn_w_example_head = attn_w[example_idx, l, head_idx].cpu().detach().numpy()
 
-            # Visualize the attention weights as a heatmap in the corresponding subplot
-            ax = axes[head_idx]
-            ax.imshow(attn_w_example_head, cmap='GnBu')
-            ax.set_title(f'Head {head_idx + 1}')
-            ax.set_xlabel(x_axis_title)
-            ax.set_ylabel(y_axis_title)
+                    # Visualize the attention weights as a heatmap in the corresponding subplot
+                    ax = axes[l, head_idx]
+                    ax.imshow(attn_w_example_head, cmap='GnBu')
+                    ax.set_title(f'Layer {l} - Head {head_idx + 1}')
+                    ax.set_xlabel(x_axis_title)
+                    ax.set_ylabel(y_axis_title)
+        else:
+            for head_idx in range(num_heads):
+                # Extract attention weights for the chosen example and head
+                attn_w_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()
+
+                # Visualize the attention weights as a heatmap in the corresponding subplot
+                ax = axes[head_idx]
+                ax.imshow(attn_w_example_head, cmap='GnBu')
+                ax.set_title(f'Head {head_idx + 1}')
+                ax.set_xlabel(x_axis_title)
+                ax.set_ylabel(y_axis_title)        
         
         # suptitle
         if L1 == L2:
             pyplot.suptitle("Self-attention weights")
         else:
             pyplot.suptitle("Cross-attention weights")
+            
     else:
         # Extract attention weights for the chosen example
         attn_w_example = attn_w[example_idx].cpu().detach().numpy()
@@ -191,5 +212,6 @@ def plot_attention(attn_w, example_idx:int=0):
         # Visualize the attention weights as a heatmap in the corresponding subplot
         pyplot.imshow(attn_w_example, cmap='GnBu')
         pyplot.title(f'Attention weights')
-            
+    
+    pyplot.tight_layout()
     pyplot.show()
