@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 26 Oct, 2023
+Last Update: 29 Oct, 2023
 
 # Code Description
 ======================
@@ -79,7 +79,7 @@ def generate_causal_attention_mask(
 
 class SelfAttentionHead(nn.Module):
     def __init__(self, d_model:int=config.D_MODEL):
-        super(SelfAttentionHead, self).__init__()
+        super().__init__()
         self.inf = 1e9
         self.d_k = d_model
         
@@ -92,28 +92,31 @@ class SelfAttentionHead(nn.Module):
 
     def self_attention(
         self, 
-        inp:torch.Tensor, 
+        q:torch.Tensor,
+        k:torch.Tensor,  
+        v:torch.Tensor,          
         mask=None, 
         return_weights=True
     ):
-        B, L, D = inp.shape
+        B, L, D = q.shape
         
         # Linear calculation
-        q = self.w_q(inp)
-        k = self.w_k(inp)
-        v = self.w_v(inp)
+        q = self.w_q(q)
+        k = self.w_k(k)
+        v = self.w_v(v)
 
         # Scaled Dot-Product Attention
         matmul_qk = torch.matmul(q, k.transpose(-2, -1))
         scaled_attention_logits = matmul_qk / math.sqrt(self.d_k)
 
         if mask is not None:
-            scaled_attention_logits += (mask * -self.inf)
+            scaled_attention_logits.masked_fill(mask == config.TGT_PAD_TOK_ID, -self.inf)
 
         attention_weights = self._softmax(scaled_attention_logits)
         attention_weights = self.dropout(attention_weights)
 
-        context = torch.matmul(attention_weights, v) # (B, L, num_heads, D)        
+        context = torch.matmul(attention_weights, v)
+        
         if return_weights:
             return context, attention_weights
         else:
@@ -121,13 +124,17 @@ class SelfAttentionHead(nn.Module):
 
     def forward(
         self, 
-        inp:torch.Tensor, 
+        q:torch.Tensor,
+        k:torch.Tensor,  
+        v:torch.Tensor,         
         mask=None, 
         return_weights=False
     ):
         
         context, attn_W = self.self_attention(
-            inp, 
+            q,
+            k,
+            v, 
             mask=mask, 
             return_weights=return_weights
         )
@@ -142,25 +149,32 @@ class MultiHeadSelfAttention(nn.Module):
     ):
         super().__init__()
         
-        self.num_heads = num_heads
-        self.head_dim = d_model // num_heads
 
-        self.attention_heads = nn.ModuleList([SelfAttentionHead(d_model) for _ in range(num_heads)])
+        
+        assert d_model % num_heads ==0, f"d_model should be divisible by num_heads. Found d_model={d_model} and num_heads={num_heads}"
+        
+        self.num_heads = num_heads
+        self.d_model = d_model
+        self.head_dim = self.d_model // self.num_heads
+
+        self.attention_heads = nn.ModuleList([SelfAttentionHead(self.d_model) for _ in range(self.num_heads)])
         
         self.output_layer = nn.Sequential(
-            nn.Linear(config.SELF_ATTENTION_OUT_DIM, d_model, bias=False),
+            nn.Linear(self.d_model * self.num_heads, self.d_model, bias=False),
             nn.Dropout(p=config.DROPOUT_RATE)
         )
         
     def forward(
         self, 
-        inp:torch.Tensor,  
+        q:torch.Tensor,
+        k:torch.Tensor,  
+        v:torch.Tensor,  
         mask=None, 
         return_weights=True
     ):
-        B, L, D = inp.shape
+        B, L, D = q.shape
         
-        head_outputs = [head(inp, mask=mask, return_weights=return_weights) for head in self.attention_heads]
+        head_outputs = [head(q, k, v, mask=mask, return_weights=return_weights) for head in self.attention_heads]
         
         # Combine the results from different heads
         combined_output = torch.cat(
@@ -178,103 +192,103 @@ class MultiHeadSelfAttention(nn.Module):
 
         return context, attention_weights
 
-class CrossAttentionHead(nn.Module):
-    def __init__(
-        self, 
-        embed_dim:int=config.D_MODEL, 
-        dropout_rate:float=config.DROPOUT_RATE
-    ):
-        super().__init__()
+# class CrossAttentionHead(nn.Module):
+#     def __init__(
+#         self, 
+#         embed_dim:int=config.D_MODEL, 
+#         dropout_rate:float=config.DROPOUT_RATE
+#     ):
+#         super().__init__()
 
-        self.embed_dim = embed_dim
-        self.dropout_rate = dropout_rate
+#         self.embed_dim = embed_dim
+#         self.dropout_rate = dropout_rate
         
-        # Linear transformations for keys, and values for input sequences
-        self.w_k_input = nn.Linear(embed_dim, embed_dim, bias=False)
-        self.w_v_input = nn.Linear(embed_dim, embed_dim, bias=False)
+#         # Linear transformations for keys, and values for input sequences
+#         self.w_k_input = nn.Linear(embed_dim, embed_dim, bias=False)
+#         self.w_v_input = nn.Linear(embed_dim, embed_dim, bias=False)
         
-        # Linear transformation for output sequences
-        self.w_q_output = nn.Linear(embed_dim, embed_dim, bias=False)
+#         # Linear transformation for output sequences
+#         self.w_q_output = nn.Linear(embed_dim, embed_dim, bias=False)
 
-        self.dropout = nn.Dropout(self.dropout_rate)
-        self._softmax = nn.Softmax(dim=-1)
+#         self.dropout = nn.Dropout(self.dropout_rate)
+#         self._softmax = nn.Softmax(dim=-1)
 
-    def forward(self, input_seq, input_lens, output_seq, apply_mask=False):
+#     def forward(self, input_seq, input_lens, output_seq, apply_mask=False):
         
-        B, max_len = input_seq.shape[0], input_seq.shape[1]
+#         B, max_len = input_seq.shape[0], input_seq.shape[1]
         
-        # Linear transformations for both input sequences
-        k_input = self.w_k_input(input_seq)
-        v_input = self.w_v_input(input_seq)
+#         # Linear transformations for both input sequences
+#         k_input = self.w_k_input(input_seq)
+#         v_input = self.w_v_input(input_seq)
         
-        # Linear transformations for both output sequences
-        q_output = self.w_q_output(output_seq)
+#         # Linear transformations for both output sequences
+#         q_output = self.w_q_output(output_seq)
 
-        # Calculate cross-attention scores
-        attn_scores = torch.matmul(q_output, k_input.transpose(-2, -1))
-        attn_scores = attn_scores / math.sqrt(self.embed_dim)
+#         # Calculate cross-attention scores
+#         attn_scores = torch.matmul(q_output, k_input.transpose(-2, -1))
+#         attn_scores = attn_scores / math.sqrt(self.embed_dim)
         
-        if apply_mask:
-            # mask padded tokens in input sequence
-            input_mask = torch.arange(max_len).expand(B, -1) < input_lens.view(-1, 1)
-            input_mask = input_mask.to(attn_scores.device)
+#         if apply_mask:
+#             # mask padded tokens in input sequence
+#             input_mask = torch.arange(max_len).expand(B, -1) < input_lens.view(-1, 1)
+#             input_mask = input_mask.to(attn_scores.device)
 
-            # mask out corresponding attention scores
-            attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
+#             # mask out corresponding attention scores
+#             attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
 
-        # Softmax
-        attn_W = self._softmax(attn_scores)
-        attn_W = self.dropout(attn_W)
+#         # Softmax
+#         attn_W = self._softmax(attn_scores)
+#         attn_W = self.dropout(attn_W)
 
-        # Calculate cross-attention values
-        context = torch.matmul(attn_W, v_input) 
+#         # Calculate cross-attention values
+#         context = torch.matmul(attn_W, v_input) 
 
-        return context, attn_W
+#         return context, attn_W
         
 
-class MultiHeadCrossAttention(nn.Module):
-    def __init__(
-        self, 
-        embed_dim:int=config.D_MODEL, 
-        num_heads:int=config.N_HEADS, 
-        dropout_rate:float=config.DROPOUT_RATE
-    ):
-        super().__init__()
+# class MultiHeadCrossAttention(nn.Module):
+#     def __init__(
+#         self, 
+#         embed_dim:int=config.D_MODEL, 
+#         num_heads:int=config.N_HEADS, 
+#         dropout_rate:float=config.DROPOUT_RATE
+#     ):
+#         super().__init__()
         
-        self.d_model = embed_dim
-        self.num_heads = num_heads
-        self.head_dim = self.d_model // self.num_heads
-        self.dropout_rate = dropout_rate
+#         self.d_model = embed_dim
+#         self.num_heads = num_heads
+#         self.head_dim = self.d_model // self.num_heads
+#         self.dropout_rate = dropout_rate
 
-        self.attention_heads = nn.ModuleList([CrossAttentionHead(self.d_model) for _ in range(self.num_heads)])
+#         self.attention_heads = nn.ModuleList([CrossAttentionHead(self.d_model) for _ in range(self.num_heads)])
 
         
-        self.dropout = nn.Dropout(self.dropout_rate)
-        self._softmax = nn.Softmax(dim=-1)
+#         self.dropout = nn.Dropout(self.dropout_rate)
+#         self._softmax = nn.Softmax(dim=-1)
 
-    def forward(
-        self, 
-        input_seq, 
-        input_lens, 
-        output_seq, 
-        apply_mask=False
-    ):
+#     def forward(
+#         self, 
+#         input_seq, 
+#         input_lens, 
+#         output_seq, 
+#         apply_mask=False
+#     ):
         
-        B = input_seq.shape[0]
+#         B = input_seq.shape[0]
         
-        head_outputs = [head(input_seq, input_lens, output_seq, apply_mask) for head in self.attention_heads]
+#         head_outputs = [head(input_seq, input_lens, output_seq, apply_mask) for head in self.attention_heads]
         
-        # Combine the results from different heads
-        context = torch.cat(
-            [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
-            dim=-1
-        )
-        attention_weights = torch.stack(
-            [output[1] for output in head_outputs], 
-            dim=1
-        )
+#         # Combine the results from different heads
+#         context = torch.cat(
+#             [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
+#             dim=-1
+#         )
+#         attention_weights = torch.stack(
+#             [output[1] for output in head_outputs], 
+#             dim=1
+#         )
 
-        return context, attention_weights
+#         return context, attention_weights
 
 class FeedFowardLayer(nn.Module):
     def __init__(

@@ -64,6 +64,7 @@ class TargetEncoding:
         
         # create causal attention mask
         self.attention_mask = generate_causal_attention_mask(dim=len_dec_inputs+padding_len)
+        # self.attention_mask_tokens = generate_causal_attention_mask(dim=(1+config.NUM_HISTORY), for_learned_tokens=True)
 
 class BEDataset(Dataset):
     def __init__(
@@ -192,6 +193,13 @@ class BEDataset(Dataset):
         
         # prepare encoder inputs
         encoder_inp = torch.as_tensor(enc_ad["input_ids"]).long()
+        # generate additional ids for learned tokens mask
+        additional_ids = torch.cat(
+            [torch.zeros_like(encoder_inp) for _ in range(config.NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS)], 
+            dim=-1
+        )
+        learned_tokens_ids = torch.cat([encoder_inp, additional_ids], dim=-1)        
+        
         sample = {
             "sample_id": data_point.sample_ID,
             "in_state": in_state,
@@ -200,22 +208,22 @@ class BEDataset(Dataset):
                 "ids"       : encoder_inp,
                 "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
                 "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
-            }
+            },
+                "source_mask"      : (learned_tokens_ids != config.SRC_PAD_TOK_ID).unsqueeze(0),
         }
 
         if self.task == "train":
             dec_inp = torch.as_tensor(enc_cmd.dec_inp_token_ids).long()
             labels  = torch.as_tensor(enc_cmd.label_token_ids).long()
-           
+            
             # prepare targets
             sample.update({
                 "motor_cmd": {
                     "raw"       : data_point.motor_cmd,
                     "decoder_inp_ids"       : dec_inp,
                     "labels":  labels, 
-                    "source_mask"      : (encoder_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
-                    "target_mask"      : (dec_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0) & enc_cmd.attention_mask
-                }
+                },
+                "target_mask"      : (dec_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0) & enc_cmd.attention_mask,
             })
             
             if return_goal:
@@ -238,7 +246,6 @@ class BEDataModule(pl.LightningDataModule):
         """
         # shuffle dataframe
         self.train_df = self.train_df.sample(frac=1.).reset_index(drop=True)
-        print(f"Total # examples: {len(self.train_df)}")
         
         # train/val split
         random_indices = np.random.rand(len(self.train_df)) < (1-config.VALIDATION_PCT)
@@ -280,7 +287,8 @@ class BEDataModule(pl.LightningDataModule):
             f'Testing on {test_data_size} samples.'
         )
                     
-        
+        print(f"Total # examples: {training_data_size+validation_data_size+test_data_size}")
+
     def train_dataloader(self):
         """
             Defines the structure of the training dataloader
