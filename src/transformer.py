@@ -83,7 +83,7 @@ class SelfAttentionHead(nn.Module):
         self.inf = 1e9
         self.d_k = d_model
         
-        self.dropout = nn.Dropout(p=config.DROPOUT_RATE)
+        self.dropout = nn.Dropout(p=config.DECODER_DROPOUT_RATE)
         self._softmax = nn.Softmax(dim=-1)
 
         self.w_q = nn.Linear(d_model, d_model, bias=False)
@@ -161,7 +161,7 @@ class MultiHeadSelfAttention(nn.Module):
         
         self.output_layer = nn.Sequential(
             nn.Linear(self.d_model * self.num_heads, self.d_model, bias=False),
-            nn.Dropout(p=config.DROPOUT_RATE)
+            nn.Dropout(p=config.DECODER_DROPOUT_RATE)
         )
         
     def forward(
@@ -192,111 +192,13 @@ class MultiHeadSelfAttention(nn.Module):
 
         return context, attention_weights
 
-# class CrossAttentionHead(nn.Module):
-#     def __init__(
-#         self, 
-#         embed_dim:int=config.D_MODEL, 
-#         dropout_rate:float=config.DROPOUT_RATE
-#     ):
-#         super().__init__()
-
-#         self.embed_dim = embed_dim
-#         self.dropout_rate = dropout_rate
-        
-#         # Linear transformations for keys, and values for input sequences
-#         self.w_k_input = nn.Linear(embed_dim, embed_dim, bias=False)
-#         self.w_v_input = nn.Linear(embed_dim, embed_dim, bias=False)
-        
-#         # Linear transformation for output sequences
-#         self.w_q_output = nn.Linear(embed_dim, embed_dim, bias=False)
-
-#         self.dropout = nn.Dropout(self.dropout_rate)
-#         self._softmax = nn.Softmax(dim=-1)
-
-#     def forward(self, input_seq, input_lens, output_seq, apply_mask=False):
-        
-#         B, max_len = input_seq.shape[0], input_seq.shape[1]
-        
-#         # Linear transformations for both input sequences
-#         k_input = self.w_k_input(input_seq)
-#         v_input = self.w_v_input(input_seq)
-        
-#         # Linear transformations for both output sequences
-#         q_output = self.w_q_output(output_seq)
-
-#         # Calculate cross-attention scores
-#         attn_scores = torch.matmul(q_output, k_input.transpose(-2, -1))
-#         attn_scores = attn_scores / math.sqrt(self.embed_dim)
-        
-#         if apply_mask:
-#             # mask padded tokens in input sequence
-#             input_mask = torch.arange(max_len).expand(B, -1) < input_lens.view(-1, 1)
-#             input_mask = input_mask.to(attn_scores.device)
-
-#             # mask out corresponding attention scores
-#             attn_scores = attn_scores.masked_fill(~input_mask.unsqueeze(-1), -config.INF)
-
-#         # Softmax
-#         attn_W = self._softmax(attn_scores)
-#         attn_W = self.dropout(attn_W)
-
-#         # Calculate cross-attention values
-#         context = torch.matmul(attn_W, v_input) 
-
-#         return context, attn_W
-        
-
-# class MultiHeadCrossAttention(nn.Module):
-#     def __init__(
-#         self, 
-#         embed_dim:int=config.D_MODEL, 
-#         num_heads:int=config.N_HEADS, 
-#         dropout_rate:float=config.DROPOUT_RATE
-#     ):
-#         super().__init__()
-        
-#         self.d_model = embed_dim
-#         self.num_heads = num_heads
-#         self.head_dim = self.d_model // self.num_heads
-#         self.dropout_rate = dropout_rate
-
-#         self.attention_heads = nn.ModuleList([CrossAttentionHead(self.d_model) for _ in range(self.num_heads)])
-
-        
-#         self.dropout = nn.Dropout(self.dropout_rate)
-#         self._softmax = nn.Softmax(dim=-1)
-
-#     def forward(
-#         self, 
-#         input_seq, 
-#         input_lens, 
-#         output_seq, 
-#         apply_mask=False
-#     ):
-        
-#         B = input_seq.shape[0]
-        
-#         head_outputs = [head(input_seq, input_lens, output_seq, apply_mask) for head in self.attention_heads]
-        
-#         # Combine the results from different heads
-#         context = torch.cat(
-#             [output[0].view(B, -1, self.num_heads, self.head_dim) for output in head_outputs], 
-#             dim=-1
-#         )
-#         attention_weights = torch.stack(
-#             [output[1] for output in head_outputs], 
-#             dim=1
-#         )
-
-#         return context, attention_weights
-
 class FeedFowardLayer(nn.Module):
     def __init__(
         self, 
         in_dim:int=config.D_MODEL, 
         mlp_dim:int=config.D_FF, 
         out_dim:int=config.D_MODEL, 
-        dropout_rate:float=config.DROPOUT_RATE,
+        dropout_rate:float=config.DECODER_DROPOUT_RATE,
         activation_fn:str="ReLU"
     ):
         super().__init__()
@@ -351,7 +253,6 @@ class PositionalEncoder(nn.Module):
 
         return x
 
-
 class TransformerDecoderLayer(nn.Module):
     def __init__(
         self, 
@@ -367,7 +268,7 @@ class TransformerDecoderLayer(nn.Module):
         self.self_attn = MultiHeadSelfAttention(num_heads=n_selfattention_heads)
         
         # Multi-head Cross-attention
-        self.cross_attn = MultiHeadCrossAttention(num_heads=n_crossattention_heads)
+        self.cross_attn = MultiHeadSelfAttention(num_heads=n_crossattention_heads)
         
         # Layer normalization 1
         self.norm1 = LayerNormalization()
@@ -390,15 +291,15 @@ class TransformerDecoderLayer(nn.Module):
 
     def forward(
         self, 
-        tokens:torch.Tensor, 
-        inp_lens:torch.Tensor,
-        self_mask:torch.Tensor=None, 
-        cross_mask:torch.tensor=None,
+        inp:torch.Tensor, 
+        encoder_out:torch.Tensor,
+        src_mask:torch.Tensor=None, 
+        target_mask:torch.tensor=None,
         return_weights:bool=True,
         debug:bool=False
     ):
         
-        inp = tokens # reserve this for cross attention
+        # inp = encoder_out # reserve this for cross attention
         
         if debug:
             print(f"inp shape: {inp.shape}")
@@ -409,7 +310,7 @@ class TransformerDecoderLayer(nn.Module):
 
         # Multi-head self-attention
         self_attn_W = None
-        self_attn_output = self.self_attn(inp_, mask=self_mask)
+        self_attn_output = self.self_attn(q=inp, k=inp, v=inp, mask=target_mask)
         
         if return_weights:
             inp_, self_attn_W = self_attn_output
@@ -419,10 +320,10 @@ class TransformerDecoderLayer(nn.Module):
         if debug:
             print(f"MHSA out : {inp_.shape}")
         # Apply dropout and add the residual connection
-        tokens = tokens + self.dropout(inp_)
+        inp = inp + self.dropout(inp_)
         
         # Layer normalization 2
-        out = self.norm2(tokens)
+        out = self.norm2(inp)
         if debug:
             print(f"LN 2 out shape: {out.shape}")
         # Apply FF
@@ -430,21 +331,19 @@ class TransformerDecoderLayer(nn.Module):
         if debug:
             print(f"FF out shape: {ff_out.shape}")
         # Add the residual connection
-        tokens = tokens + ff_out
+        inp = inp + ff_out
         
         # compute cross attention between encoder's outputs and decoder's prev. hidden states
-        cross_attn_out, cross_attn_W = self.cross_attn(inp, inp_lens, tokens, apply_mask=cross_mask)
+        cross_attn_out, cross_attn_W = self.cross_attn(q=inp, k=encoder_out, v=encoder_out, mask=src_mask)
         
         if debug:
             print(f"MHCA out : {cross_attn_out.shape}")
         
         if debug:
-            print(f"Final out shape: {tokens.shape}")
+            print(f"Final out shape: {inp.shape}")
             
-        return tokens, self_attn_W, cross_attn_W
+        return inp, self_attn_W, cross_attn_W
 
-    
-    
 class TransformerDecoder(nn.Module):
     def __init__(
         self, 
@@ -453,13 +352,6 @@ class TransformerDecoder(nn.Module):
         super().__init__()
         
         self.num_layers = num_layers
-
-        # token embedding
-        self.token_embedding = nn.Linear(
-            in_features=config.D_MODEL, 
-            out_features=config.EMBEDDING_DIM,
-            bias=False
-        )
                
         # transformer layers
         self.layers = nn.ModuleList([
@@ -479,30 +371,31 @@ class TransformerDecoder(nn.Module):
     def forward(
         self, 
         inp:torch.Tensor, 
-        inp_lens:torch.Tensor,
-        self_mask:torch.Tensor=None, 
-        cross_mask:torch.tensor=None,        
+        encoder_out:torch.Tensor,
+        src_mask:torch.Tensor=None, 
+        target_mask:torch.tensor=None,
+        return_weights:bool=True,
         debug:bool=False
-    ):        
-        # embed tokens
-        inp = self.token_embedding(inp)
-        
+    ):                
         # run self-attention modules
         self_attn_Ws = []
         cross_attn_Ws = []
         
         for layer in self.layers:
             inp, self_attn_W, cross_attn_W = layer(
-                inp, 
-                inp_lens, 
-                self_mask=self_mask, 
-                cross_mask=cross_mask,
+                inp=inp, 
+                encoder_out=encoder_out, 
+                src_mask=src_mask, 
+                target_mask=target_mask,
                 debug=debug
+                
+                
+                
             )
             # store attention weights
             self_attn_Ws.append(self_attn_W)
             cross_attn_Ws.append(cross_attn_W)
         
-        self_attn_Ws, cross_attn_Ws = torch.cat(self_attn_Ws, dim=0), torch.cat(cross_attn_Ws, dim=0)
+        self_attn_Ws, cross_attn_Ws = torch.stack(self_attn_Ws, dim=1), torch.stack(cross_attn_Ws, dim=1)
         
         return inp, self_attn_Ws, cross_attn_Ws

@@ -64,7 +64,6 @@ class TargetEncoding:
         
         # create causal attention mask
         self.attention_mask = generate_causal_attention_mask(dim=len_dec_inputs+padding_len)
-        # self.attention_mask_tokens = generate_causal_attention_mask(dim=(1+config.NUM_HISTORY), for_learned_tokens=True)
 
 class BEDataset(Dataset):
     def __init__(

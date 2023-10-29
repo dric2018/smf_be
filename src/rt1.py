@@ -7,7 +7,7 @@ from film_layers import FiLMEncoder
 from token_learner import TokenLearnerModuleV11
 import torch
 import torch.nn as nn
-from transformer import PositionalEncoder, MultiHeadSelfAttention, MultiHeadCrossAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
+from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
 from utils.model_utils import TextEncoder
 from utils.data_utils import History
@@ -122,25 +122,105 @@ class ActionGenerator(nn.Module):
         d_model:int=config.D_MODEL, 
         vocab_size:int=len(config.TARGETS),
         action_bins:int=config.ACTION_BINS,
-        num_actons:int=config.NUM_ACTION_SLOTS
+        num_actons:int=config.NUM_ACTION_SLOTS,
+        apply_pooling:bool=False
     ):
         super().__init__()
         
         # attrs
+        self.apply_pooling = apply_pooling
         self.action_bins = action_bins
         
         # layers
-        self.pooler = CustomPooling()
-        self.norm = LayerNormalization()
-        self.proj = nn.Linear(in_features=d_model, out_features=vocab_size)
+        if self.apply_pooling:
+            self.pooler = CustomPooling()
+            self.norm = LayerNormalization()
+            
+        self.proj = nn.Sequential(
+            nn.Linear(in_features=d_model, out_features=vocab_size),
+            nn.Dropout(p=config.DECODER_DROPOUT_RATE)
+        )
         self._softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, tokens):
         
-        out = self.pooler(tokens)
-        out = self.norm(out)
+        if self.apply_pooling:
+            out = self.pooler(tokens)
+            out = self.norm(out)
+        else:
+            out = tokens
+            
         out = self.proj(out)
         out = self._softmax(out)
         
         return out
     
+    
+class RT1Decoder(nn.Module):
+    def __init__(
+                 self, 
+                 num_decoder_layers:int=config.N_DECODER_LAYERS
+        ):
+        super().__init__()
+        
+        self.num_decoder_layers = num_decoder_layers
+        
+        # token embedding
+        self.target_embedding = nn.Embedding(
+            num_embeddings=config.TARGET_VOCAB_SIZE, 
+            embedding_dim=config.EMBEDDING_DIM, 
+            padding_idx=config.TGT_PAD_TOK_ID
+        )
+        
+        self.token_embedding = nn.Linear(
+            in_features=config.D_MODEL, 
+            out_features=config.EMBEDDING_DIM,
+            bias=False
+        )
+        
+        self.pos_embedding = PositionalEncoder(seq_len=config.MAX_LEN)        
+        
+        self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
+        self.norm = LayerNormalization()
+        self.action_generator = ActionGenerator()
+        
+    def _decode_predictions(self, preds, method:str="greedy"):
+        """
+            Args:
+                preds: predictions (logits)
+                method: decoding strategy. one of ["greedy", "beam-search"]
+                
+            Returns:
+                actions: decoded predictions as sequence of actions.
+            
+        """
+        pass
+    
+    def forward(
+        self, 
+        inp:torch.Tensor, 
+        encoder_out:torch.Tensor,
+        src_mask:torch.Tensor=None, 
+        target_mask:torch.tensor=None,
+        return_weights:bool=True,
+        debug:bool=False
+    ):
+        # embed inputs
+        inp = self.target_embedding(inp)
+        inp = self.pos_embedding(inp)
+        
+        # embed tokens
+        encoder_out = self.token_embedding(encoder_out)
+        
+        out, self_attn_ws, cross_attn_ws = self.transformer(
+            inp=inp, 
+            encoder_out=encoder_out, 
+            src_mask=src_mask, 
+            target_mask=target_mask, 
+            debug=debug
+        )
+        
+        out = self.norm(out)
+        out = self.action_generator(out)
+        
+        return out, self_attn_ws, cross_attn_ws
