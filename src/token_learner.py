@@ -121,4 +121,4 @@ class TokenLearnerModuleV11(nn.Module):
         # print(f"feat: {feat.shape} - selected: {selected.shape}")
         feat = torch.einsum('...si,...id->...sd', [selected, feat])
 
-        return feat.view(n, c, self.num_tokens)
+        return feat.view(-1, c, self.num_tokens)

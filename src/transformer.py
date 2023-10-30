@@ -374,7 +374,6 @@ class TransformerDecoder(nn.Module):
         encoder_out:torch.Tensor,
         src_mask:torch.Tensor=None, 
         target_mask:torch.tensor=None,
-        return_weights:bool=True,
         debug:bool=False
     ):                
         # run self-attention modules
@@ -388,14 +387,14 @@ class TransformerDecoder(nn.Module):
                 src_mask=src_mask, 
                 target_mask=target_mask,
                 debug=debug
-                
-                
-                
             )
             # store attention weights
             self_attn_Ws.append(self_attn_W)
             cross_attn_Ws.append(cross_attn_W)
         
         self_attn_Ws, cross_attn_Ws = torch.stack(self_attn_Ws, dim=1), torch.stack(cross_attn_Ws, dim=1)
+        
+        if self.num_layers == 1:
+            self_attn_Ws, cross_attn_Ws = self_attn_Ws.squeeze(1), cross_attn_Ws.squeeze(1)
         
         return inp, self_attn_Ws, cross_attn_Ws

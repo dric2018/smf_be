@@ -16,25 +16,29 @@ import torchvision.models as models
 from transformers import AutoTokenizer, AutoModel, AutoConfig
 
 class TextEncoder(nn.Module):
-    def __init__(self, dropout_rate:float=config.TEXT_ENC_DROPOUT, freeze:bool=True):
+    def __init__(
+        self, 
+        dropout_rate:float=config.ENCODER_DROPOUT_RATE, 
+        freeze:bool=True
+    ):
         super().__init__()
         
         self.freeze = freeze
         
         model_config = AutoConfig.from_pretrained(config.LANG_MODEL_NAME)
-        self.text_encoder = AutoModel.from_pretrained(config.LANG_MODEL_NAME, config=model_config)
+        self.encoder = AutoModel.from_pretrained(config.LANG_MODEL_NAME, config=model_config)
         self.dropout = nn.Dropout(p=dropout_rate)
         
         if self.freeze:
             self._freeze_model()
 
     def _freeze_model(self):
-        for param in self.text_encoder.parameters():
+        for param in self.encoder.parameters():
             param.requires_grad = False 
         
     def forward(self, inp_ids, mask, tok_type_ids):
         # embed NL instructions
-        text_enc = self.text_encoder(
+        text_enc = self.encoder(
             input_ids=inp_ids,
             attention_mask=mask,
             token_type_ids=tok_type_ids
@@ -158,14 +162,14 @@ def plot_attention(attn_w, example_idx:int=0):
     num_layers = 1
     
     if attn_w.ndim > 3:
-        if attn_w.ndim >=4:
+        if attn_w.ndim >4:
             # multi layer plot
             B, num_layers, num_heads, L1, L2 = attn_w.shape
         else:
             B, num_heads, L1, L2 = attn_w.shape
         
         if L1 != L2:
-            # -attention plot
+            # corss-attention plot
             x_axis_title = "Input"
             y_axis_title = "Output"
         else:
@@ -175,7 +179,8 @@ def plot_attention(attn_w, example_idx:int=0):
         
         fig, axes = pyplot.subplots(num_layers, num_heads, figsize=(15, 5))
         
-        if num_layers:
+        if num_layers and num_layers > 1:
+            # multi-layer
             for l in range(num_layers):
                 for head_idx in range(num_heads):
                     # Extract attention weights for the chosen example and head
@@ -186,8 +191,9 @@ def plot_attention(attn_w, example_idx:int=0):
                     ax.imshow(attn_w_example_head, cmap='GnBu')
                     ax.set_title(f'Layer {l} - Head {head_idx + 1}')
                     ax.set_xlabel(x_axis_title)
-                    ax.set_ylabel(y_axis_title)
+                    ax.set_ylabel(y_axis_title)                
         else:
+            # single-layer
             for head_idx in range(num_heads):
                 # Extract attention weights for the chosen example and head
                 attn_w_example_head = attn_w[example_idx, head_idx].cpu().detach().numpy()

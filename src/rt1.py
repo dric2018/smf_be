@@ -169,7 +169,7 @@ class RT1Decoder(nn.Module):
         self.target_embedding = nn.Embedding(
             num_embeddings=config.TARGET_VOCAB_SIZE, 
             embedding_dim=config.EMBEDDING_DIM, 
-            padding_idx=config.TGT_PAD_TOK_ID
+            # padding_idx=config.TGT_PAD_TOK_ID
         )
         
         self.token_embedding = nn.Linear(
@@ -210,7 +210,7 @@ class RT1Decoder(nn.Module):
         inp = self.pos_embedding(inp)
         
         # embed tokens
-        encoder_out = self.token_embedding(encoder_out)
+        # encoder_out = self.token_embedding(encoder_out)
         
         out, self_attn_ws, cross_attn_ws = self.transformer(
             inp=inp, 

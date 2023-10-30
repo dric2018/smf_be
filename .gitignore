@@ -10,7 +10,8 @@ models/
 */.ipynb_checkpoints/*
 .ipynb_checkpoints/
 notebooks/.ipynb_checkpoints/
-
+notebooks/*.txt
+notebooks/lightning_logs/
 # src
 src/.ipynb_checkpoints/ 
 src/checkpoints/

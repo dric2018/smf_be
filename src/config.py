@@ -15,15 +15,15 @@ import vocabulary as vocab
 # I/O
 ## Set seed
 SEED = 1234
-random.seed(SEED)
-np.random.seed(SEED)
-torch.manual_seed(SEED)
+# random.seed(SEED)
+# np.random.seed(SEED)
+# torch.manual_seed(SEED)
 
-if torch.cuda.is_available(): 
-    torch.cuda.manual_seed(SEED)
-    torch.cuda.manual_seed_all(SEED)
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+# if torch.cuda.is_available(): 
+#     torch.cuda.manual_seed(SEED)
+#     torch.cuda.manual_seed_all(SEED)
+#     torch.backends.cudnn.deterministic = True
+#     torch.backends.cudnn.benchmark = False
 
 # Paths
 DATASET_PATH = "../../../dataset/robot_manipulations/"
@@ -86,13 +86,16 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 4
-EPOCHS = 200
-LEARNING_RATE = 1e-4
+BATCH_SIZE = 8
+EPOCHS = 10 #200
+LR = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
+LABEL_SMOOTHING = 0.1
+GRAD_CLIP_VAL = 0.5
+WEIGHT_DECAY = 1e-3
 
-## Robotic Transformer
+## Robotics Transformer
 ### Encoder
 NUM_RES_BLOCKS = 5
 NUM_CHANNELS = {
