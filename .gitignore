@@ -12,11 +12,14 @@ models/
 notebooks/.ipynb_checkpoints/
 notebooks/*.txt
 notebooks/lightning_logs/
+notebooks/tb_logs/
+
 # src
 src/.ipynb_checkpoints/ 
 src/checkpoints/
 src/__pycache__/
-
+src/lightning_logs
+src/tb_logs
 # src/utils
 src/utils/__pycache__/
 src/utils/.ipynb_checkpoints/
