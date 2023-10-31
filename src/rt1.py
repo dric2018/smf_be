@@ -14,6 +14,8 @@ import config
 from film_layers import FiLMEncoder
 
 from token_learner import TokenLearnerModuleV11
+
+from typing import Tuple
 import torch
 import torch.nn as nn
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
@@ -47,7 +49,7 @@ class RT1Encoder(nn.Module):
         
         B, C, H, W = imgs.shape
         
-        text_enc = self.text_encoder(
+        text_enc, text_enc_h_state = self.text_encoder(
             inp_ids=input_ids,
             mask=attn_mask,
             tok_type_ids=token_type_ids
@@ -56,14 +58,14 @@ class RT1Encoder(nn.Module):
         # Generage vision-laguage tokens
         vl_tokens = self.film_image_encoder(
             x= imgs,
-            conditioning= text_enc
+            conditioning=text_enc
         )
 
         N, C, H_W = vl_tokens.shape
         # Extract learned tokens
         learned_tokens  = self.token_learner(vl_tokens.view(N, H_W, C))
         
-        return text_enc, learned_tokens
+        return text_enc_h_state, learned_tokens
         
 
     def forward(self, input_ids, attn_mask, token_type_ids, imgs):
@@ -80,19 +82,19 @@ class RT1Encoder(nn.Module):
             device = config.DEVICE
         )
 
-        for h in range(config.NUM_HISTORY+1):
+        for i in range(config.NUM_HISTORY+1):
             # print(history.carousel[:, :, h, :, :].shape)
-            src_enc, tokens = self._encode(
+            text_enc_h_state, tokens = self._encode(
                 input_ids=input_ids,
                 attn_mask=attn_mask,
                 token_type_ids=token_type_ids,
-                imgs=history.carousel[:, :, h, :, :].to(config.DEVICE)
+                imgs=history.carousel[:, :, i, :, :].to(config.DEVICE)
             )
 
-            tokenized_inputs[:,  h] = tokens 
+            tokenized_inputs[:,  i] = tokens 
             
             
-        return src_enc, tokenized_inputs.view(B, -1, config.D_MODEL)
+        return text_enc_h_state, tokenized_inputs.view(B, -1, config.D_MODEL)
 
     
     
@@ -178,17 +180,9 @@ class RT1Decoder(nn.Module):
         self.target_embedding = nn.Embedding(
             num_embeddings=config.TARGET_VOCAB_SIZE, 
             embedding_dim=config.EMBEDDING_DIM, 
-            # padding_idx=config.TGT_PAD_TOK_ID
+            padding_idx=config.TGT_PAD_TOK_ID
         )
-        
-        self.token_embedding = nn.Linear(
-            in_features=config.D_MODEL, 
-            out_features=config.EMBEDDING_DIM,
-            bias=False
-        )
-        
-        self.pos_embedding = PositionalEncoder(seq_len=config.MAX_LEN)        
-        
+                
         self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
         self.norm = LayerNormalization()
         self.action_generator = ActionGenerator()
@@ -208,22 +202,18 @@ class RT1Decoder(nn.Module):
     def forward(
         self, 
         inp:torch.Tensor, 
-        encoder_out:torch.Tensor,
-        src_mask:torch.Tensor=None, 
+        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
+        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
         return_weights:bool=True,
         debug:bool=False
     ):
         # embed inputs
         inp = self.target_embedding(inp)
-        # inp = self.pos_embedding(inp)
-        
-        # embed tokens
-        # encoder_out = self.token_embedding(encoder_out)
-        
-        out, self_attn_ws, cross_attn_ws = self.transformer(
+                
+        out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self.transformer(
             inp=inp, 
-            encoder_out=encoder_out, 
+            encoder_outs=encoder_outs, 
             src_mask=src_mask, 
             target_mask=target_mask, 
             debug=debug
@@ -232,4 +222,4 @@ class RT1Decoder(nn.Module):
         out = self.norm(out)
         out = self.action_generator(out)
         
-        return out, self_attn_ws, cross_attn_ws
+        return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens

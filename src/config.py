@@ -10,6 +10,7 @@ import numpy as np
 from pprint import pprint
 import random
 import torch 
+
 import vocabulary as vocab
 
 # I/O
@@ -91,10 +92,18 @@ EPOCHS = 30 #200
 LR = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
-LABEL_SMOOTHING = 0.1
-GRAD_CLIP_VAL = 1.
+LABEL_SMOOTHING = 0.15
+GRAD_CLIP_VAL = 0.5
 WEIGHT_DECAY = 1e-5
-
+LR_SCHEDULER = {
+    "type": "ReduceLROnPlateau",
+    "params": {
+        "mode":'min', 
+        "factor":0.2, 
+        "patience":5, 
+        "min_lr":1e-7, 
+    }
+}
 ## Robotics Transformer
 ### Encoder
 NUM_RES_BLOCKS = 5
@@ -107,7 +116,7 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.1
+ENCODER_DROPOUT_RATE = 0.15
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
@@ -125,7 +134,7 @@ D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
 TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)
-DECODER_DROPOUT_RATE = .15
+DECODER_DROPOUT_RATE = .2
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 20
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

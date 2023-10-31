@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Oct, 2023
+Last Update: 31 Oct, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -64,7 +64,11 @@ class TargetEncoding:
         
         # create causal attention mask
         self.attention_mask = generate_causal_attention_mask(dim=len_dec_inputs+padding_len)
-
+        self.attention_mask_tokens = generate_causal_attention_mask(
+            dim=len_dec_inputs+padding_len, 
+            for_learned_tokens=True
+        )
+        
 class BEDataset(Dataset):
     def __init__(
             self,
@@ -208,7 +212,9 @@ class BEDataset(Dataset):
                 "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
                 "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
             },
-                "source_mask"      : (learned_tokens_ids != config.SRC_PAD_TOK_ID).unsqueeze(0),
+                "source_mask_tokens"      : (learned_tokens_ids != config.SRC_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
+                "source_mask"      : (encoder_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
+            
         }
 
         if self.task == "train":

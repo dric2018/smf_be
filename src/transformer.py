@@ -23,6 +23,8 @@ import config
 from einops import repeat
 
 import math
+
+from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -310,12 +312,33 @@ class TransformerDecoderLayer(nn.Module):
     def forward(
         self, 
         inp:torch.Tensor, 
-        encoder_out:torch.Tensor,
-        src_mask:torch.Tensor=None, 
+        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
+        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
         return_weights:bool=True,
         debug:bool=False
     ):
+        """
+            Args:
+                inp:torch.Tensor 
+                encoder_outs:Tuple[torch.Tensor, torch.Tensor]
+                     (encoded input sequence, learned tokens)
+                    
+                src_mask:torch.Tensor 
+                target_mask:torch.tensor
+                return_weights:bool
+                debug:bool
+                
+            Returns:
+                inp: 
+                
+                self_attn_W: 
+                
+                cross_attn_W_seq: Cross attention weights for input sequence-to-output sequence mapping
+                
+                cross_attn_W_tokens: Cross attention weights for learned tokens-to-output sequence mapping
+                
+        """
         
         # inp = encoder_out # reserve this for cross attention
         
@@ -352,15 +375,26 @@ class TransformerDecoderLayer(nn.Module):
         inp = inp + ff_out
         
         # compute cross attention between encoder's outputs and decoder's prev. hidden states
-        cross_attn_out, cross_attn_W = self.cross_attn(q=inp, k=encoder_out, v=encoder_out, mask=src_mask)
-        
+        _, cross_attn_W_seq = self.cross_attn(
+            q=inp, 
+            k=encoder_outs[0], 
+            v=encoder_outs[0], 
+            mask=src_mask[0]
+        )
+        _, cross_attn_W_tokens = self.cross_attn(
+            q=inp, 
+            k=encoder_outs[1], 
+            v=encoder_outs[1], 
+            mask=src_mask[1]
+        )
+
         if debug:
             print(f"MHCA out : {cross_attn_out.shape}")
         
         if debug:
             print(f"Final out shape: {inp.shape}")
             
-        return inp, self_attn_W, cross_attn_W
+        return inp, self_attn_W, cross_attn_W_seq, cross_attn_W_tokens
 
 class TransformerDecoder(nn.Module):
     def __init__(
@@ -394,8 +428,8 @@ class TransformerDecoder(nn.Module):
     def forward(
         self, 
         inp:torch.Tensor, 
-        encoder_out:torch.Tensor,
-        src_mask:torch.Tensor=None, 
+        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
+        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
         debug:bool=False
     ):                
@@ -413,23 +447,30 @@ class TransformerDecoder(nn.Module):
         
         # run self-attention modules
         self_attn_Ws = []
-        cross_attn_Ws = []
+        cross_attn_Ws_seq = []
+        cross_attn_Ws_tokens = []
         
         for layer in self.layers:
-            inp, self_attn_W, cross_attn_W = layer(
+            inp, self_attn_W, cross_attn_W_seq, cross_attn_W_tokens = layer(
                 inp=inp, 
-                encoder_out=encoder_out, 
+                encoder_outs=encoder_outs, 
                 src_mask=src_mask, 
                 target_mask=target_mask,
                 debug=debug
             )
             # store attention weights
             self_attn_Ws.append(self_attn_W)
-            cross_attn_Ws.append(cross_attn_W)
-        
-        self_attn_Ws, cross_attn_Ws = torch.stack(self_attn_Ws, dim=1), torch.stack(cross_attn_Ws, dim=1)
+            cross_attn_Ws_seq.append(cross_attn_W_seq)
+            cross_attn_Ws_tokens.append(cross_attn_W_tokens)
+
+        self_attn_Ws = torch.stack(self_attn_Ws, dim=1) 
+        cross_attn_Ws_seq = torch.stack(cross_attn_Ws_seq, dim=1)
+        cross_attn_Ws_tokens = torch.stack(cross_attn_Ws_tokens, dim=1)
+
         
         if self.num_layers == 1:
-            self_attn_Ws, cross_attn_Ws = self_attn_Ws.squeeze(1), cross_attn_Ws.squeeze(1)
-        
-        return inp, self_attn_Ws, cross_attn_Ws
+            self_attn_Ws = self_attn_Ws.squeeze(1)
+            cross_attn_Ws_seq = cross_attn_Ws_seq.squeeze(1)
+            cross_attn_W_tokens = cross_attn_W_tokens.squeeze(1)
+
+        return inp, self_attn_Ws, cross_attn_Ws_seq, cross_attn_W_tokens

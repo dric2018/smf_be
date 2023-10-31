@@ -8,6 +8,8 @@ Last Update: 29 Oct, 2023
 import config
 from matplotlib import pyplot
 
+import numpy as np
+
 import timm
 import torch
 import torch.nn as nn
@@ -42,12 +44,13 @@ class TextEncoder(nn.Module):
             input_ids=inp_ids,
             attention_mask=mask,
             token_type_ids=tok_type_ids
-        ).pooler_output
+        )
+        
         
         # print(text_enc.shape)
-        text_enc = self.dropout(text_enc)
+        out = self.dropout(text_enc.pooler_output)
         
-        return text_enc
+        return out, text_enc.last_hidden_state
     
     
 def get_backbone(model:nn.Module):
@@ -157,7 +160,12 @@ class VisionLanguageHead(nn.Module):
         else:
             return self.global_max_pool(feats)
 
-def plot_attention(attn_w, example_idx:int=0):
+def plot_attention(
+    attn_w, 
+    example_idx:int=0, 
+    kind:str=None, 
+    show:bool=True
+):
     
     num_layers = 1
     
@@ -168,16 +176,21 @@ def plot_attention(attn_w, example_idx:int=0):
         else:
             B, num_heads, L1, L2 = attn_w.shape
         
-        if L1 != L2:
+        # self-attention plot by default
+        x_axis_title = "Input seq"
+        y_axis_title = "Input seq"          
+        
+        if (L1 != L2) or (kind=="cross"):
             # corss-attention plot
             x_axis_title = "Input"
-            y_axis_title = "Output"
-        else:
-            # self-attention plot
-            x_axis_title = "Input seq"
-            y_axis_title = "Input seq"        
+            y_axis_title = "Output"                  
         
-        fig, axes = pyplot.subplots(num_layers, num_heads, figsize=(15, 5))
+        fig, axes = pyplot.subplots(
+            num_layers, 
+            num_heads, 
+            figsize=(15, 5),
+            dpi=300
+        )
         
         if num_layers and num_layers > 1:
             # multi-layer
@@ -188,7 +201,7 @@ def plot_attention(attn_w, example_idx:int=0):
 
                     # Visualize the attention weights as a heatmap in the corresponding subplot
                     ax = axes[l, head_idx]
-                    ax.imshow(attn_w_example_head, cmap='GnBu')
+                    ax.imshow(attn_w_example_head, cmap='GnBu', interpolation='nearest')
                     ax.set_title(f'Layer {l} - Head {head_idx + 1}')
                     ax.set_xlabel(x_axis_title)
                     ax.set_ylabel(y_axis_title)                
@@ -200,16 +213,31 @@ def plot_attention(attn_w, example_idx:int=0):
 
                 # Visualize the attention weights as a heatmap in the corresponding subplot
                 ax = axes[head_idx]
-                ax.imshow(attn_w_example_head, cmap='GnBu')
+                ax.imshow(attn_w_example_head, cmap='GnBu', interpolation='nearest')
                 ax.set_title(f'Head {head_idx + 1}')
                 ax.set_xlabel(x_axis_title)
                 ax.set_ylabel(y_axis_title)        
         
         # suptitle
-        if L1 == L2:
+        if L1 == L2 and kind !="cross":
             pyplot.suptitle("Self-attention weights")
         else:
             pyplot.suptitle("Cross-attention weights")
+            
+        pyplot.tight_layout()
+
+        if show:
+            pyplot.show()
+        else:
+            # Convert the figure to a NumPy array
+            fig = pyplot.gcf()
+            fig.canvas.draw()
+            image_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+            image_array = image_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            
+            pyplot.close()
+            
+            return image_array
             
     else:
         # Extract attention weights for the chosen example
@@ -219,5 +247,17 @@ def plot_attention(attn_w, example_idx:int=0):
         pyplot.imshow(attn_w_example, cmap='GnBu')
         pyplot.title(f'Attention weights')
     
-    pyplot.tight_layout()
-    pyplot.show()
+        pyplot.tight_layout()
+
+        if show:
+            pyplot.show()
+        else:
+            # Convert the figure to a NumPy array
+            fig = pyplot.gcf()
+            fig.canvas.draw()
+            image_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
+            image_array = image_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            
+            pyplot.close()
+
+            return image_array
