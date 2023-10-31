@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Oct, 2023
+Last Update: 31 Oct, 2023
 
 # Code Description
 ======================
@@ -25,6 +25,7 @@ from einops import repeat
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def generate_masks(src_sequence, target_sequence=None):
@@ -227,31 +228,48 @@ class LayerNormalization(nn.Module):
         return x
 
 
+# class PositionalEncoder(nn.Module):
+#     def __init__(
+#         self,
+#         seq_len:int=config.NUM_TOKENIZED_INPUTS
+#     ):
+#         super().__init__()
+#         # Make initial positional encoding matrix with 0
+#         pe_matrix= torch.zeros(seq_len, config.D_MODEL) # (L, config.D_MODEL)
+
+#         # Calculating position encoding values
+#         for pos in range(seq_len):
+#             for i in range(config.D_MODEL):
+#                 if i % 2 == 0:
+#                     pe_matrix[pos, i] = math.sin(pos / (10000 ** (2 * i / config.D_MODEL)))
+#                 elif i % 2 == 1:
+#                     pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i / config.D_MODEL)))
+
+#         pe_matrix = pe_matrix.unsqueeze(0) # (1, L, config.D_MODEL)
+#         self.positional_encoding = pe_matrix.to(device=config.DEVICE).requires_grad_(False)
+
+#     def forward(self, x):
+#         x = x * math.sqrt(config.D_MODEL) # (B, L, config.D_MODEL)
+#         x = x + self.positional_encoding # (B, L, config.D_MODEL)
+
+#         return x
+    
 class PositionalEncoder(nn.Module):
-    def __init__(
-        self,
-        seq_len:int=config.NUM_TOKENIZED_INPUTS
-    ):
+    def __init__(self, seq_len):
         super().__init__()
-        # Make initial positional encoding matrix with 0
-        pe_matrix= torch.zeros(seq_len, config.D_MODEL) # (L, config.D_MODEL)
-
-        # Calculating position encoding values
-        for pos in range(seq_len):
-            for i in range(config.D_MODEL):
-                if i % 2 == 0:
-                    pe_matrix[pos, i] = math.sin(pos / (10000 ** (2 * i / config.D_MODEL)))
-                elif i % 2 == 1:
-                    pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i / config.D_MODEL)))
-
-        pe_matrix = pe_matrix.unsqueeze(0) # (1, L, config.D_MODEL)
-        self.positional_encoding = pe_matrix.to(device=config.DEVICE).requires_grad_(False)
+        pe = torch.zeros(seq_len, config.D_MODEL)
+        position = torch.arange(0, seq_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, config.D_MODEL, 2, dtype=torch.float) * (-math.log(10000.0) / config.D_MODEL))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer('pe', pe)
 
     def forward(self, x):
-        x = x * math.sqrt(config.D_MODEL) # (B, L, config.D_MODEL)
-        x = x + self.positional_encoding # (B, L, config.D_MODEL)
-
+        x = x * math.sqrt(x.size(-1))
+        x = x + self.pe[:, :x.size(1)]
         return x
+
 
 class TransformerDecoderLayer(nn.Module):
     def __init__(
@@ -352,6 +370,11 @@ class TransformerDecoder(nn.Module):
         super().__init__()
         
         self.num_layers = num_layers
+        
+        # token embedding
+        self.token_emb = nn.Linear(config.D_MODEL, config.D_MODEL, bias=False) 
+        # positional embedding
+        self.position_emb = nn.Linear(config.MAX_LEN, config.D_MODEL, bias=False)
                
         # transformer layers
         self.layers = nn.ModuleList([
@@ -376,6 +399,18 @@ class TransformerDecoder(nn.Module):
         target_mask:torch.tensor=None,
         debug:bool=False
     ):                
+        B, L, D = inp.shape
+        
+        # Create positions tensor
+        positions = torch.arange(0, L).unsqueeze(0).expand(B, -1).to(inp.device)
+        positions = F.one_hot(positions, num_classes=L).to(torch.float32)
+
+        # Token embeddings
+        inp = self.token_emb(inp)
+
+        # Positional embeddings
+        inp += self.position_emb(positions)
+        
         # run self-attention modules
         self_attn_Ws = []
         cross_attn_Ws = []

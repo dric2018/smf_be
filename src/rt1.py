@@ -1,4 +1,13 @@
+"""
+# Author Information
+======================
+Author: Cedric Manouan
+Last Update: 31 Oct, 2023
 
+# Code Description
+======================
+A re-implementation of the Robotics Transformer model (RT-1)
+"""
 
 import config
 
@@ -207,7 +216,7 @@ class RT1Decoder(nn.Module):
     ):
         # embed inputs
         inp = self.target_embedding(inp)
-        inp = self.pos_embedding(inp)
+        # inp = self.pos_embedding(inp)
         
         # embed tokens
         # encoder_out = self.token_embedding(encoder_out)
