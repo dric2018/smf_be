@@ -1,4 +1,9 @@
-
+"""
+# Author Information
+======================
+Author: Cedric Manouan
+Last Update: 31 Oct, 2023
+"""
 
 from activations import Swish
 import config
@@ -42,7 +47,7 @@ class FiLMBlockV2(nn.Module):
     
         # Initialize with zeros as suggested by the RT1 paper
         # Reference: https://arxiv.org/abs/2212.06817
-        self.apply(self._initialize_weights_to_zeros)
+        # self.apply(self._initialize_weights_to_zeros)
     
     def _initialize_weights_to_zeros(self, layer):
         if isinstance(layer, nn.Linear):

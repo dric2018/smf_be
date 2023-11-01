@@ -13,6 +13,8 @@ import config
 
 from film_layers import FiLMEncoder
 
+import lightning.pytorch as pl
+
 from token_learner import TokenLearnerModuleV11
 
 from typing import Tuple
@@ -223,3 +225,180 @@ class RT1Decoder(nn.Module):
         out = self.action_generator(out)
         
         return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
+    
+    
+class RT1(pl.LightningModule):
+    def __init__(
+        self,
+        cnn_bacnbone:str="efficientnet_b3",
+        num_res_blocks:int=config.NUM_RES_BLOCKS,
+        num_decoder_layers:int=config.N_DECODER_LAYERS,
+        freeze_cnn_backbone:bool=True
+    ):
+        super().__init__()
+        self.encoder = RT1Encoder(
+            cnn_bacnbone=cnn_bacnbone, 
+            num_res_blocks=num_res_blocks, 
+            freeze_cnn_backbone=freeze_cnn_backbone
+        )
+        
+        self.decoder = RT1Decoder(num_decoder_layers=num_decoder_layers)
+        
+        self.loss_fn = nn.CrossEntropyLoss(
+            ignore_index=config.TGT_PAD_TOK_ID, 
+            label_smoothing=config.LABEL_SMOOTHING
+        )
+        
+    def _encode(
+        self, 
+        input_ids:torch.tensor, 
+        attn_mask:torch.tensor, 
+        token_type_ids:torch.tensor, 
+        imgs:torch.tensor,
+    ):
+        
+        text_enc_last_h, learned_tokens = self.encoder(
+            input_ids=input_ids, 
+            attn_mask=attn_mask, 
+            token_type_ids=token_type_ids, 
+            imgs=imgs
+        )
+        
+        return text_enc_last_h, learned_tokens
+    
+    def _decode(
+        self, 
+        decoder_inp:torch.Tensor, 
+        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
+        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
+        target_mask:torch.tensor=None,
+        debug:bool=False
+    ):        
+        return self.decoder(
+            inp=decoder_inp, 
+            encoder_outs=encoder_outs, 
+            src_mask=src_mask, 
+            target_mask=target_mask,
+            debug=debug
+        )
+    
+    def decoder_predictions(self, predicted_ids:torch.Tensor)->list:
+
+        batch_preds = []
+        B = predicted_ids.shape[0]
+        for b in range(B):
+            curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids[b].tolist()]
+            batch_preds.append(" ".join(curr_preds))
+
+        return batch_preds
+    
+    
+    def forward(
+        self, 
+        input_ids:torch.tensor, 
+        attn_mask:torch.tensor, 
+        token_type_ids:torch.tensor, 
+        imgs:torch.tensor,
+        decoder_inp:torch.tensor,
+        src_mask:Tuple[torch.Tensor, torch.Tensor], 
+        target_mask:torch.tensor
+    ):
+        
+        text_enc_last_h, learned_tokens = self._encode(
+            input_ids=input_ids, 
+            attn_mask=attn_mask, 
+            token_type_ids=token_type_ids, 
+            imgs=imgs
+        )
+        
+        return self.decoder(
+            inp=decoder_inp, 
+            encoder_outs=(text_enc_last_h, learned_tokens), 
+            src_mask=src_mask, 
+            target_mask=target_mask 
+        )
+    
+    def configure_optimizers(self):
+        
+        opt = getattr(torch.optim, config.OPTIMIZER)(
+            params=[p for p in self.parameters() if p.requires_grad], 
+            lr=config.LR,
+            weight_decay=config.WEIGHT_DECAY
+        )
+        
+        scheduler = getattr(torch.optim.lr_scheduler, config.LR_SCHEDULER["type"])(
+            opt, 
+            **config.LR_SCHEDULER["params"]
+        )
+        
+        return {"optimizer": opt, "lr_scheduler": scheduler, "monitor": "val_loss"}
+    
+    def _step(self, batch):
+        
+        input_ids=batch["action_desc"]["ids"]
+        attn_mask=batch["action_desc"]["mask"]
+        token_type_ids=batch["action_desc"]["token_type_ids"]
+        imgs=batch["in_state"]
+        decoder_inp=batch["motor_cmd"]["decoder_inp_ids"] 
+        src_mask=batch["source_mask"] 
+        src_mask_tokens=batch["source_mask_tokens"] 
+        target_mask=batch["target_mask"] 
+        
+        # forward pass
+        return self(
+            input_ids=input_ids, 
+            attn_mask=attn_mask, 
+            token_type_ids=token_type_ids, 
+            imgs=imgs,
+            decoder_inp=decoder_inp, 
+            src_mask=(src_mask, src_mask_tokens), 
+            target_mask=target_mask 
+        )
+    
+    def training_step(self, batch, batch_idx):
+        preds, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        
+        # compute loss
+        labels = batch["motor_cmd"]["labels"]
+        train_loss = self.loss_fn(preds.view(-1, preds.shape[2]), labels.view(-1))
+        
+        # return loss
+        metrics = {"loss": train_loss, "train_loss": train_loss}
+        self.log("train_loss", train_loss, prog_bar=True, logger=True, on_step=True, on_epoch=True)
+        
+        return metrics
+    
+    def validation_step(self, batch, batch_idx):
+        
+        preds, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        # compute loss
+        labels = batch["motor_cmd"]["labels"]
+        val_loss = self.loss_fn(preds.view(-1, preds.shape[2]), labels.view(-1))
+        
+        # # plot attention weights
+        # if batch_idx % 50 == 0:
+        #     self.logger.experiment.add_image(
+        #         "self-attention", 
+        #         plot_attention(self_attn_ws, show=False), 
+        #         self.global_step
+        #     )
+        #     self.logger.experiment.add_image(
+        #         "Seq Cross-attention", 
+        #         plot_attention(cross_attn_ws_seq, show=False), 
+        #         self.global_step
+        #     )
+        #     self.logger.experiment.add_image(
+        #         "Seq/Tokens Corss-attention", 
+        #         plot_attention(cross_attn_ws_tokens, show=False), 
+        #         self.global_step
+        #     )
+            
+        # return loss
+        metrics = {"val_loss": val_loss}
+        self.log("val_loss", val_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
+        
+        return metrics
+    
+    def test_step(self, batch, batch_idx):
+        pass
+    

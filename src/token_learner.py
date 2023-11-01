@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 23 Oct, 2023
+Last Update: 31 Oct, 2023
 
 # Code Description
 ======================
@@ -87,23 +87,22 @@ class TokenLearnerModuleV11(nn.Module):
         self.num_tokens = num_tokens
         self.bottleneck_dim = bottleneck_dim
         self.dropout_rate = dropout_rate
-        self.feature_shape = feature_shape
         
         self.layer_norm = LayerNormalization()
         
         self.token_masking = FeedFowardLayer(
-            in_dim=self.feature_shape[-1],
+            in_dim=config.EMBEDDING_DIM,
             mlp_dim=self.bottleneck_dim,
             out_dim=self.num_tokens,            
             activation_fn="GELU"
         )
 
-    def forward(self, inputs, deterministic:bool=True):
+    def forward(self, inputs):
         if inputs.dim() == 4:
-            n, c, h, w = inputs.size()
-            inputs = inputs.view(n, h * w, c)
+            b, c, h, w = inputs.size()
+            inputs = inputs.view(b, h * w, c)
         
-        n, h_w, c = inputs.shape
+        b, h_w, c = inputs.shape
 
         selected = inputs
         # print(f"LN in: {selected.shape}")
@@ -111,13 +110,13 @@ class TokenLearnerModuleV11(nn.Module):
         # print(f"LN out: {selected.shape}")
 
         selected = self.token_masking(selected)
-
-        selected = selected.view(self.feature_shape[0], -1, self.num_tokens)  # Shape: [bs, h*w, n_token].
+        # print(f"Token masking out: {selected.shape}")
+        selected = selected.view(b, -1, self.num_tokens)  # Shape: [bs, h*w, n_token].
         selected = selected.transpose(1, 2)  # Shape: [bs, n_token, h*w].
         selected = F.softmax(selected, dim=-1)
 
         feat = inputs
-        feat = feat.view(self.feature_shape[0], -1, self.feature_shape[-1])  # Shape: [bs, h*w, c].
+        feat = feat.view(b, -1, config.EMBEDDING_DIM)  # Shape: [bs, h*w, c].
         # print(f"feat: {feat.shape} - selected: {selected.shape}")
         feat = torch.einsum('...si,...id->...sd', [selected, feat])
 

@@ -64,7 +64,7 @@ HISTORY_AUGS = A.Compose([
 ])
 MAX_LEN = 16
 NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS = 2
-VALIDATION_PCT = .2
+VALIDATION_PCT = .15
 
 # model
 IMG_ENCODER_BACKBONES = {
@@ -77,9 +77,8 @@ IMG_ENCODER_BACKBONES = {
     "efficientnet_b4" : "efficientnet_b4.ra2_in1k", # 19.3M
     "mobilenet-v3-small": "mobilenetv3_small_100.lamb_in1k", # 2M
     "mobilenet-v3-large": "mobilenetv3_large_100.ra_in1k", # 5.5M
-
-
 }
+
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
@@ -87,14 +86,14 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8
-EPOCHS = 30 #200
+BATCH_SIZE = 32
+EPOCHS = 25 #200
 LR = 1e-4
-OPTIMIZER = "AdamW" 
+OPTIMIZER = "Adam" 
 NUM_WORKERS = 4
-LABEL_SMOOTHING = 0.15
+LABEL_SMOOTHING = 0.1
 GRAD_CLIP_VAL = 0.5
-WEIGHT_DECAY = 1e-5
+WEIGHT_DECAY = 1e-3
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
@@ -116,7 +115,7 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.15
+ENCODER_DROPOUT_RATE = 0.1
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
@@ -133,8 +132,7 @@ EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
-TOKEN_LEARNER_FTRS_SHAPE = (BATCH_SIZE, IMG_TOKEN_SIZE*IMG_TOKEN_SIZE, EMBEDDING_DIM)
-DECODER_DROPOUT_RATE = .2
+DECODER_DROPOUT_RATE = .1
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 20
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

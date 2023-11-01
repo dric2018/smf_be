@@ -176,6 +176,7 @@ class MultiHeadSelfAttention(nn.Module):
         return_weights=True
     ):
         B, L, D = q.shape
+        # print("MHSA in: ", q.shape)
         
         head_outputs = [head(q, k, v, mask=mask, return_weights=return_weights) for head in self.attention_heads]
         
@@ -189,8 +190,8 @@ class MultiHeadSelfAttention(nn.Module):
             dim=1
         )
         
-        combined_output = combined_output.contiguous().view(B, L, -1)
-        
+        combined_output = combined_output.contiguous().view(B, L, self.d_model * self.num_heads)
+        # print(f"combined: {combined_output.shape}")
         context = self.output_layer(combined_output)        
 
         return context, attention_weights
@@ -228,33 +229,6 @@ class LayerNormalization(nn.Module):
         x = self.layer(x)
 
         return x
-
-
-# class PositionalEncoder(nn.Module):
-#     def __init__(
-#         self,
-#         seq_len:int=config.NUM_TOKENIZED_INPUTS
-#     ):
-#         super().__init__()
-#         # Make initial positional encoding matrix with 0
-#         pe_matrix= torch.zeros(seq_len, config.D_MODEL) # (L, config.D_MODEL)
-
-#         # Calculating position encoding values
-#         for pos in range(seq_len):
-#             for i in range(config.D_MODEL):
-#                 if i % 2 == 0:
-#                     pe_matrix[pos, i] = math.sin(pos / (10000 ** (2 * i / config.D_MODEL)))
-#                 elif i % 2 == 1:
-#                     pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i / config.D_MODEL)))
-
-#         pe_matrix = pe_matrix.unsqueeze(0) # (1, L, config.D_MODEL)
-#         self.positional_encoding = pe_matrix.to(device=config.DEVICE).requires_grad_(False)
-
-#     def forward(self, x):
-#         x = x * math.sqrt(config.D_MODEL) # (B, L, config.D_MODEL)
-#         x = x + self.positional_encoding # (B, L, config.D_MODEL)
-
-#         return x
     
 class PositionalEncoder(nn.Module):
     def __init__(self, seq_len):
@@ -375,12 +349,14 @@ class TransformerDecoderLayer(nn.Module):
         inp = inp + ff_out
         
         # compute cross attention between encoder's outputs and decoder's prev. hidden states
-        _, cross_attn_W_seq = self.cross_attn(
+        # print("MHCA 1")
+        cross_attn_out, cross_attn_W_seq = self.cross_attn(
             q=inp, 
             k=encoder_outs[0], 
             v=encoder_outs[0], 
             mask=src_mask[0]
         )
+        # print("MHCA 2")
         _, cross_attn_W_tokens = self.cross_attn(
             q=inp, 
             k=encoder_outs[1], 
@@ -432,7 +408,8 @@ class TransformerDecoder(nn.Module):
         src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
         debug:bool=False
-    ):                
+    ):      
+        
         B, L, D = inp.shape
         
         # Create positions tensor
