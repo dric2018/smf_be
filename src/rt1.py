@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 31 Oct, 2023
+Last Update: 2 Nov, 2023
 
 # Code Description
 ======================
@@ -17,7 +17,7 @@ import lightning.pytorch as pl
 
 from token_learner import TokenLearnerModuleV11
 
-from typing import Tuple
+from typing import Tuple, Union
 import torch
 import torch.nn as nn
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
@@ -249,6 +249,20 @@ class RT1(pl.LightningModule):
             label_smoothing=config.LABEL_SMOOTHING
         )
         
+        # weights init
+        self.apply(self._init_weights)  
+        
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            if module.bias is not None:
+                torch.nn.init.zeros_(module.bias)
+        elif isinstance(module, nn.Embedding):
+            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        elif isinstance(module, nn.LayerNorm):
+            torch.nn.init.zeros_(module.bias)
+            torch.nn.init.ones_(module.weight)
+        
     def _encode(
         self, 
         input_ids:torch.tensor, 
@@ -356,11 +370,11 @@ class RT1(pl.LightningModule):
         )
     
     def training_step(self, batch, batch_idx):
-        preds, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
-        
+        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        probs = nn.functional.softmax(logits, dim=-1)
         # compute loss
         labels = batch["motor_cmd"]["labels"]
-        train_loss = self.loss_fn(preds.view(-1, preds.shape[2]), labels.view(-1))
+        train_loss = self.loss_fn(probs.view(-1, probs.shape[2]), labels.view(-1))
         
         # return loss
         metrics = {"loss": train_loss, "train_loss": train_loss}
@@ -370,10 +384,11 @@ class RT1(pl.LightningModule):
     
     def validation_step(self, batch, batch_idx):
         
-        preds, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        probs = nn.functional.softmax(logits, dim=-1)
         # compute loss
         labels = batch["motor_cmd"]["labels"]
-        val_loss = self.loss_fn(preds.view(-1, preds.shape[2]), labels.view(-1))
+        val_loss = self.loss_fn(probs.view(-1, probs.shape[2]), labels.view(-1))
         
         # # plot attention weights
         # if batch_idx % 50 == 0:
@@ -397,8 +412,62 @@ class RT1(pl.LightningModule):
         metrics = {"val_loss": val_loss}
         self.log("val_loss", val_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         
+        # check model's performance qualitatively
+        # self.greedy_decoding(batch)
+        
         return metrics
     
     def test_step(self, batch, batch_idx):
         pass
-    
+
+    def greedy_decoding(
+        self,
+        batch:Union[torch.Tensor, torch.utils.data.DataLoader], 
+        max_len:int=config.MAX_LEN,
+        limit:int=1
+    ):
+        self.eval()
+
+        sos_token = config.TARGETS_MAPPING["[SOS]"]
+        eos_token = config.TARGETS_MAPPING["[EOS]"]
+
+        input_ids=batch["action_desc"]["ids"].to(config.DEVICE)
+        attn_mask=batch["action_desc"]["mask"].to(config.DEVICE)
+        token_type_ids=batch["action_desc"]["token_type_ids"].to(config.DEVICE)
+        imgs=batch["in_state"].to(config.DEVICE)
+
+        text_enc_last_h, learned_tokens = self._encode(
+            input_ids=input_ids, 
+            attn_mask=attn_mask, 
+            token_type_ids=token_type_ids, 
+            imgs=imgs    
+        )
+
+        B = input_ids.shape[0]
+
+        decoder_inp = torch.zeros(B, config.MAX_LEN).type_as(input_ids)
+        decoder_inp[:, 0] = sos_token
+
+        # decoding procedure
+        for t in range(1, max_len):
+            # # stop decoding if max
+            # create causal mask for decoding
+            decoder_mask = generate_causal_attention_mask(
+                dim=decoder_inp.shape[1]
+            ).type_as(src_mask[0])
+
+            # generate predictions
+            logits, _, _, _ = self._decode(
+                decoder_inp=decoder_inp, 
+                encoder_outs=(text_enc_last_h, learned_tokens), 
+                src_mask=src_mask, 
+                target_mask=decoder_mask
+            )
+            probs = nn.functional.softmax(logits, dim=-1)
+
+            # perform greedy decoding
+            next_tok = torch.argmax(probs[:, -1, :], dim=-1)
+            # update decoder input with new token
+            decoder_inp[:, t] = next_tok
+
+        return decoder_inp.cpu().detach()

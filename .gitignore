@@ -2,6 +2,7 @@
 .ipynb_checkpoints/
 checkpoints
 # SMF Repo
+
 dataset/
 data/
 checkpoints/
@@ -13,7 +14,7 @@ notebooks/.ipynb_checkpoints/
 notebooks/*.txt
 notebooks/lightning_logs/*
 notebooks/tb_logs/*
-
+notebooks/wandb/
 # src
 src/.ipynb_checkpoints/ 
 src/checkpoints/

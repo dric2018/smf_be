@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 31 Oct, 2023
+Last Update: 2 Nov, 2023
 """
 
 import albumentations as A
@@ -49,7 +49,7 @@ IMG_RESIZE = 384
 
 TRAIN_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
-    "RandomBrightnessContrast": {'p': 0.2},
+    "RandomBrightnessContrast": {'p': 0.35},
 }
 TEST_TFMS        = {
     "Resize"                  : {"height": IMG_SIZE,"width": IMG_SIZE},
@@ -59,7 +59,7 @@ HISTORY_AUGS = A.Compose([
     A.Defocus(),
     A.Emboss(p=0.5),
     A.Perspective(),
-    A.CoarseDropout(p=0.3),
+    A.CoarseDropout(p=0.4),
     A.Sharpen()
 ])
 MAX_LEN = 16
@@ -86,26 +86,27 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 32
-EPOCHS = 25 #200
-LR = 1e-4
-OPTIMIZER = "Adam" 
+BATCH_SIZE = 16
+EPOCHS = 30 #200
+LR = 2e-4
+OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
 GRAD_CLIP_VAL = 0.5
-WEIGHT_DECAY = 1e-3
+WEIGHT_DECAY = 1e-4
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
         "mode":'min', 
         "factor":0.2, 
-        "patience":5, 
+        "patience":3, 
         "min_lr":1e-7, 
+        "verbose":  True
     }
 }
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 5
+NUM_RES_BLOCKS = 3
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -115,11 +116,11 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.1
+ENCODER_DROPOUT_RATE = 0.35
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = .1
+TOKEN_LEARNER_DROPOUT = 0.35
 
 ### Decoder
 INF = 1e9
@@ -132,7 +133,7 @@ EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
-DECODER_DROPOUT_RATE = .1
+DECODER_DROPOUT_RATE = 0.35
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 20
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

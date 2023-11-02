@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 31 Oct, 2023
+Last Update: 2 Nov, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -298,12 +298,13 @@ class BEDataModule(pl.LightningDataModule):
         """
             Defines the structure of the training dataloader
         """
-        return DataLoader(dataset=self.train_ds,
+        return DataLoader(
+            dataset=self.train_ds,
             batch_size=config.BATCH_SIZE,
             shuffle=True,
             pin_memory=True,
             num_workers=config.NUM_WORKERS,
-                          drop_last=True
+            drop_last=True
         )
 
     def val_dataloader(self):
