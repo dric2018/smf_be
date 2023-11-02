@@ -31,7 +31,8 @@ DATASET_PATH = "../../../dataset/robot_manipulations/"
 MODEL_PATH = "../../../models/be_model.pt"
 
 # Vocabulary & Maps
-TARGETS         = ["[PAD]", "[SOS]", "[EOS]"] + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
+SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
+TARGETS         = SPECIAL_TOKENS + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
 TARGET_VOCAB_SIZE = len(TARGETS)
@@ -88,7 +89,7 @@ TOKENIZER_CONFIG = {
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 16
 EPOCHS = 30 #200
-LR = 2e-4
+LR = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1

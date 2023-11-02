@@ -399,7 +399,7 @@ class TransformerDecoder(nn.Module):
         # Glorot / fan_avg. Initialization
         for p in self.parameters():
             if p.dim() > 1:
-                nn.init.xavier_uniform(p)
+                nn.init.xavier_uniform_(p)
             
     def forward(
         self, 
@@ -413,14 +413,15 @@ class TransformerDecoder(nn.Module):
         B, L, D = inp.shape
         
         # Create positions tensor
-        positions = torch.arange(0, L).unsqueeze(0).expand(B, -1).to(inp.device)
-        positions = F.one_hot(positions, num_classes=L).to(torch.float32)
-
+        positions = torch.arange(0, config.MAX_LEN).unsqueeze(0).expand(B, -1).to(inp.device)
+        positions = F.one_hot(positions, num_classes=config.MAX_LEN).to(torch.float32)
+        positions = self.position_emb(positions)
+        
         # Token embeddings
         inp = self.token_emb(inp)
 
         # Positional embeddings
-        inp += self.position_emb(positions)
+        inp += positions[:, :L]
         
         # run self-attention modules
         self_attn_Ws = []
