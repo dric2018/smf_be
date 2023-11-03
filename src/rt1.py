@@ -408,10 +408,11 @@ class RT1(pl.LightningModule):
         
         logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)  
         
-        # store attention weights
-        self.self_attn_weights.append(self_attn_ws)
-        self.cross_attn_tokens_weights.append(cross_attn_ws_seq)
-        self.cross_attn_ws_tokens.append(cross_attn_ws_tokens)
+        if batch_idx == 0:
+            # Only store one set of attention weights
+            self.self_attn_weights.append(self_attn_ws)
+            self.cross_attn_weights.append(cross_attn_ws_seq)
+            self.cross_attn_tokens_weights.append(cross_attn_ws_tokens)
         
         # compute loss
         labels = batch["motor_cmd"]["labels"]
@@ -455,32 +456,38 @@ class RT1(pl.LightningModule):
                 f.write(f"WER \t\t: {wer:.4f}\n\n")
                 break
         
-        # plot attention weights
-        plot_attention(
-            self.self_attn_weights[-2], 
-            show=False, 
-            pre_fix="val_selfattn_", 
-            folder="val",
-            epoch=self.current_epoch        
-        )
-        plot_attention(
-            self.cross_attn_ws_seq[-1],
-            kind="cross", 
-            pre_fix="val_crossattn_", 
-            show=False, 
-            folder="val",
-            epoch=self.current_epoch        
-        )    
-        plot_attention(
-            self.cross_attn_ws_tokens[-1], 
-            pre_fix="val_crossattn_tokens_", 
-            show=False, 
-            folder="val",
-            epoch=self.current_epoch        
-        )             
-        
-        self.validation_step_outputs.clear()  # free memory
-        self.validation_step_targets.clear()  # free memory
+        if len(self.self_attn_weights) > 0:
+            # plot attention weights
+            plot_attention(
+                self.self_attn_weights[0], 
+                show=False, 
+                pre_fix="val_selfattn", 
+                folder="val",
+                epoch=self.current_epoch        
+            )
+            
+            plot_attention(
+                self.cross_attn_weights[0],
+                kind="cross", 
+                pre_fix="val_crossattn", 
+                show=False, 
+                folder="val",
+                epoch=self.current_epoch        
+            )   
+            
+            plot_attention(
+                self.cross_attn_tokens_weights[0], 
+                pre_fix="val_crossattn_tokens", 
+                show=False, 
+                folder="val",
+                epoch=self.current_epoch        
+            )             
+        # free memory
+        self.validation_step_outputs.clear()  
+        self.validation_step_targets.clear()
+        self.self_attn_weights.clear()
+        self.cross_attn_tokens_weights.clear()
+        self.cross_attn_weights.clear()
         
         
     def test_step(self, batch, batch_idx):
