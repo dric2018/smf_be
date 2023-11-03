@@ -2,13 +2,18 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Oct, 2023
+Last Update: 3 Nov, 2023
 """
 
 import config
+
+import lightning.pytorch as pl
+
 from matplotlib import pyplot
 
 import numpy as np
+
+import os 
 
 import timm
 import torch
@@ -16,6 +21,8 @@ import torch.nn as nn
 import torchvision.models as models
 
 from transformers import AutoTokenizer, AutoModel, AutoConfig
+
+from transformer import generate_causal_attention_mask
 
 class TextEncoder(nn.Module):
     def __init__(
@@ -161,10 +168,13 @@ class VisionLanguageHead(nn.Module):
             return self.global_max_pool(feats)
 
 def plot_attention(
-    attn_w, 
+    attn_w,
+    pre_fix:str="train",
     example_idx:int=0, 
     kind:str=None, 
-    show:bool=True
+    show:bool=True,
+    epoch:int=0,
+    folder:str="train"
 ):
     
     num_layers = 1
@@ -229,16 +239,10 @@ def plot_attention(
         if show:
             pyplot.show()
         else:
-            # Convert the figure to a NumPy array
-            fig = pyplot.gcf()
-            fig.canvas.draw()
-            image_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-            image_array = image_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            
+            fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+            fig.savefig(f"{fn}.png")
             pyplot.close()
-            
-            return image_array
-            
+                        
     else:
         # Extract attention weights for the chosen example
         attn_w_example = attn_w[example_idx].cpu().detach().numpy()
@@ -252,12 +256,88 @@ def plot_attention(
         if show:
             pyplot.show()
         else:
-            # Convert the figure to a NumPy array
-            fig = pyplot.gcf()
-            fig.canvas.draw()
-            image_array = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-            image_array = image_array.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-            
+            fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+            fig.savefig(f"{fn}.png")
             pyplot.close()
 
-            return image_array
+
+def greedy_decoding(
+    model:pl.LightningModule, 
+    batch:dict, 
+    max_len:int=16
+):
+    if model.device.type == "cpu":
+        model.to(config.DEVICE)
+    model.eval()
+    
+    sos_token = config.TARGETS_MAPPING["[SOS]"]
+    eos_token = config.TARGETS_MAPPING["[EOS]"]
+    
+    input_ids=batch["ids"].to(config.DEVICE)
+    attn_mask=batch["mask"].to(config.DEVICE)
+    token_type_ids=batch["token_type_ids"].to(config.DEVICE)
+    imgs=batch["in_state"].to(config.DEVICE)
+    src_mask=(
+        batch["source_mask"].to(config.DEVICE), 
+        batch["source_mask_tokens"].to(config.DEVICE)
+    )
+
+    text_enc_last_h, learned_tokens = model._encode(
+        input_ids=input_ids, 
+        attn_mask=attn_mask, 
+        token_type_ids=token_type_ids, 
+        imgs=imgs    
+    )
+    
+    
+    decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(1)
+    
+    # decoding procedure
+    for t in range(1, max_len):
+        # # stop decoding if max= len reached
+        # create causal mask for decoding
+        decoder_mask = generate_causal_attention_mask(
+            dim=decoder_inp.shape[1]
+        ).type_as(attn_mask)
+
+        # print(decoder_mask[0, t-1].float())
+
+        # generate predictions
+        logits, _, _, _ = model._decode(
+            decoder_inp=decoder_inp, 
+            encoder_outs=(text_enc_last_h, learned_tokens), 
+            src_mask=src_mask, 
+            target_mask=decoder_mask
+        )
+
+        # apply softmax
+        probs = nn.functional.softmax(logits, dim=-1)
+        # perform greedy decoding
+        next_tok = torch.argmax(probs[:, -1, :], dim=-1)
+        # update decoder input
+        decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
+            
+    return decoder_inp[0].cpu().detach()
+
+    
+def decode_predictions(predicted_ids:torch.Tensor)->list:
+    
+    curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids.tolist()]        
+    return " ".join([tok for tok in curr_preds if tok not in config.SPECIAL_TOKENS])
+
+def fetch_random_sample_from_batch(batch, batch_size:int):
+    
+    idx = np.random.randint(batch_size)
+    sample  = {}
+    
+    for k, v in batch.items():
+        if k in ["action_desc", "motor_cmd"]:
+            for k1 in v.keys():
+                if k1 == "raw":
+                    sample[k1+"_"+k] = v[k1][idx]
+                else:
+                    sample[k1] = v[k1][idx].unsqueeze(0)
+        else:
+            sample[k] = v[idx].unsqueeze(0)
+                    
+    return sample

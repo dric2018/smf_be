@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 31 Oct, 2023
+Last Update: 3 Nov, 2023
 
 # Code Description
 ======================
@@ -215,7 +215,6 @@ class FeedFowardLayer(nn.Module):
         x = self.activation(self.linear_1(x)) # (B, L, config.D_FF)
         x = self.dropout(x)
         x = self.linear_2(x) # (B, L, config.D_MODEL)
-
         return x
 
 
@@ -259,10 +258,12 @@ class TransformerDecoderLayer(nn.Module):
         super().__init__()
 
         # Multi-head self-attention
-        self.self_attn = MultiHeadSelfAttention(num_heads=n_selfattention_heads)
+        self.n_selfattention_heads = n_selfattention_heads
+        self.n_crossattention_heads = n_crossattention_heads
+        self.self_attn = MultiHeadSelfAttention(num_heads=self.n_selfattention_heads)
         
         # Multi-head Cross-attention
-        self.cross_attn = MultiHeadSelfAttention(num_heads=n_crossattention_heads)
+        self.cross_attn = MultiHeadSelfAttention(num_heads=self.n_crossattention_heads)
         
         # Layer normalization 1
         self.norm1 = LayerNormalization()

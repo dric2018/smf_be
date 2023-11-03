@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Nov, 2023
+Last Update: 3 Nov, 2023
 """
 
 import albumentations as A
@@ -28,7 +28,9 @@ SEED = 1234
 
 # Paths
 DATASET_PATH = "../../../dataset/robot_manipulations/"
-MODEL_PATH = "../../../models/be_model.pt"
+MODEL_PATH = "../models/"
+LOGS_PATH = "../logs/"
+LOGGING_FILE = "../logs/logs.txt"
 
 # Vocabulary & Maps
 SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
@@ -60,7 +62,7 @@ HISTORY_AUGS = A.Compose([
     A.Defocus(),
     A.Emboss(p=0.5),
     A.Perspective(),
-    A.CoarseDropout(p=0.4),
+    # A.CoarseDropout(p=0.4),
     A.Sharpen()
 ])
 MAX_LEN = 16
@@ -80,6 +82,8 @@ IMG_ENCODER_BACKBONES = {
     "mobilenet-v3-large": "mobilenetv3_large_100.ra_in1k", # 5.5M
 }
 
+SELECTED_CNN_BACKBONE = "efficientnet_b3"
+PRETRAINED_CNN = False
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
@@ -88,8 +92,8 @@ TOKENIZER_CONFIG = {
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 16
-EPOCHS = 30 #200
-LR = 1e-4
+EPOCHS = 1 #200
+LR = 2e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
@@ -117,11 +121,11 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.35
+ENCODER_DROPOUT_RATE = 0.25
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = 0.35
+TOKEN_LEARNER_DROPOUT = 0.25
 
 ### Decoder
 INF = 1e9
@@ -129,14 +133,14 @@ IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
 N_DECODER_LAYERS = 1
-N_HEADS = 8
+N_HEADS = 4
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
-DECODER_DROPOUT_RATE = 0.35
+DECODER_DROPOUT_RATE = 0.25
 ACTION_BINS = 256
-MAX_OUT_SEQ_LEN = 20
+MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 
 
 if __name__ == "__main__":

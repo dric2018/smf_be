@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Nov, 2023
+Last Update: 3 Nov, 2023
 
 # Code Description
 ======================
@@ -20,9 +20,10 @@ from token_learner import TokenLearnerModuleV11
 from typing import Tuple, Union
 import torch
 import torch.nn as nn
+from torchmetrics.text import CharErrorRate, WordErrorRate
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
-from utils.model_utils import TextEncoder
+from utils.model_utils import TextEncoder, fetch_random_sample_from_batch, decode_predictions, plot_attention
 from utils.data_utils import History
 
 class RT1Encoder(nn.Module):
@@ -153,7 +154,7 @@ class ActionGenerator(nn.Module):
             nn.Linear(in_features=d_model, out_features=vocab_size),
             nn.Dropout(p=config.DECODER_DROPOUT_RATE)
         )
-        self._softmax = nn.LogSoftmax(dim=-1)
+        # self._softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, tokens):
         
@@ -164,7 +165,7 @@ class ActionGenerator(nn.Module):
             out = tokens
             
         out = self.proj(out)
-        out = self._softmax(out)
+        # out = self._softmax(out)
         
         return out
     
@@ -244,13 +245,25 @@ class RT1(pl.LightningModule):
         
         self.decoder = RT1Decoder(num_decoder_layers=num_decoder_layers)
         
+        # metrics
         self.loss_fn = nn.CrossEntropyLoss(
             ignore_index=config.TGT_PAD_TOK_ID, 
             label_smoothing=config.LABEL_SMOOTHING
         )
         
+        self.cer_fn = CharErrorRate()
+        self.wer_fn = WordErrorRate()
+        
         # weights init
         self.apply(self._init_weights)  
+        
+        # placeholders
+        self.validation_step_outputs = []
+        self.validation_step_targets = []
+        self.self_attn_weights = []
+        self.cross_attn_tokens_weights = []
+        self.cross_attn_weights = []
+        
         
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -371,51 +384,105 @@ class RT1(pl.LightningModule):
     
     def training_step(self, batch, batch_idx):
         
-        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)  
+        
         # compute loss
         labels = batch["motor_cmd"]["labels"]
         train_loss = self.loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1))
         
         # return loss
         metrics = {"loss": train_loss, "train_loss": train_loss}
-        self.log("train_loss", train_loss, prog_bar=True, logger=True, on_step=True, on_epoch=True, batch_size=config.BATCH_SIZE)
+        self.log(
+            "train_loss", 
+            train_loss, 
+            prog_bar=True, 
+            logger=True, 
+            on_step=True, 
+            on_epoch=True, 
+            batch_size=config.BATCH_SIZE
+        )
         
         return metrics
     
     def validation_step(self, batch, batch_idx):
         
-        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)
+        logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)  
+        
+        # store attention weights
+        self.self_attn_weights.append(self_attn_ws)
+        self.cross_attn_tokens_weights.append(cross_attn_ws_seq)
+        self.cross_attn_ws_tokens.append(cross_attn_ws_tokens)
+        
         # compute loss
         labels = batch["motor_cmd"]["labels"]
         val_loss = self.loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1))
         
-        # # plot attention weights
-        # if batch_idx % 50 == 0:
-        #     self.logger.experiment.add_image(
-        #         "self-attention", 
-        #         plot_attention(self_attn_ws, show=False), 
-        #         self.global_step
-        #     )
-        #     self.logger.experiment.add_image(
-        #         "Seq Cross-attention", 
-        #         plot_attention(cross_attn_ws_seq, show=False), 
-        #         self.global_step
-        #     )
-        #     self.logger.experiment.add_image(
-        #         "Seq/Tokens Corss-attention", 
-        #         plot_attention(cross_attn_ws_tokens, show=False), 
-        #         self.global_step
-        #     )
-            
-        # return loss
         metrics = {"val_loss": val_loss}
-        self.log("val_loss", val_loss, prog_bar=True, logger=True, on_step=False, on_epoch=True, batch_size=config.BATCH_SIZE)
+        self.log(
+            "val_loss", 
+            val_loss, 
+            prog_bar=True, 
+            logger=True, 
+            on_step=False, 
+            on_epoch=True, 
+            batch_size=config.BATCH_SIZE
+        )
         
-        # check model's performance qualitatively
+        # Check model's qualitative performance
         # self.greedy_decoding(batch)
+        sample  = fetch_random_sample_from_batch(batch, batch_size=labels.shape[0])
+
+        out = self.greedy_decoding(batch=sample, max_len=config.MAX_OUT_SEQ_LEN)
+        decoded = decode_predictions(out)
+        actual = decode_predictions(sample["labels"][0])
         
+        self.validation_step_outputs.append(decoded)
+        self.validation_step_targets.append(actual)
+
         return metrics
     
+    
+    def on_validation_epoch_end(self):
+        
+        with open(config.LOGGING_FILE, "a") as f:
+            f.write(f"Epoch #{self.current_epoch}\n")
+            for (pred, label) in zip(self.validation_step_outputs, self.validation_step_targets):
+                cer = self.cer_fn(pred, label).item()
+                wer = self.wer_fn(pred, label).item()
+                f.write(f"Predicted \t: {pred}\n")
+                f.write(f"Actual \t\t: {label}\n")
+                f.write(f"CER \t\t: {cer:.4f}\n")
+                f.write(f"WER \t\t: {wer:.4f}\n\n")
+                break
+        
+        # plot attention weights
+        plot_attention(
+            self.self_attn_weights[-2], 
+            show=False, 
+            pre_fix="val_selfattn_", 
+            folder="val",
+            epoch=self.current_epoch        
+        )
+        plot_attention(
+            self.cross_attn_ws_seq[-1],
+            kind="cross", 
+            pre_fix="val_crossattn_", 
+            show=False, 
+            folder="val",
+            epoch=self.current_epoch        
+        )    
+        plot_attention(
+            self.cross_attn_ws_tokens[-1], 
+            pre_fix="val_crossattn_tokens_", 
+            show=False, 
+            folder="val",
+            epoch=self.current_epoch        
+        )             
+        
+        self.validation_step_outputs.clear()  # free memory
+        self.validation_step_targets.clear()  # free memory
+        
+        
     def test_step(self, batch, batch_idx):
         pass
 
@@ -435,7 +502,10 @@ class RT1(pl.LightningModule):
         attn_mask=batch["mask"].to(config.DEVICE)
         token_type_ids=batch["token_type_ids"].to(config.DEVICE)
         imgs=batch["in_state"].to(config.DEVICE)
-
+        src_mask=(
+            batch["source_mask"].to(config.DEVICE), 
+            batch["source_mask_tokens"].to(config.DEVICE)
+        )
         text_enc_last_h, learned_tokens = self._encode(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
@@ -452,7 +522,7 @@ class RT1(pl.LightningModule):
             # create causal mask for decoding
             decoder_mask = generate_causal_attention_mask(
                 dim=decoder_inp.shape[1]
-            ).type_as(src_mask[0])
+            ).type_as(attn_mask)
 
             # print(decoder_mask[0, t-1].float())
 
@@ -471,4 +541,6 @@ class RT1(pl.LightningModule):
             # update decoder input
             decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
 
-        return decoder_inp.cpu().detach()
+        return decoder_inp[0].cpu().detach()
+    
+    

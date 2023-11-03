@@ -1,4 +1,9 @@
-
+"""
+# Author Information
+======================
+Author: Cedric Manouan
+Last Update: 2 Nov, 2023
+"""
 import config
 
 from dataloader import BEDataModule
@@ -6,7 +11,7 @@ from dataloader import BEDataModule
 
 import lightning.pytorch as pl
 from lightning.pytorch import Trainer, seed_everything
-from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar
+from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelCheckpoint
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 
@@ -32,8 +37,15 @@ if __name__ == "__main__":
     
     # define loggers
     # tb_logger = TensorBoardLogger(save_dir="tb_logs", name="RT1")
-    wandb_logger = WandbLogger(project='SMF-Be', log_model='all')
+    wandb_logger = WandbLogger(project='SMF-Be', log_model=True, save_dir=config.LOGS_PATH)
     
+    # callbacks
+    checkpoint_callback = ModelCheckpoint(
+        monitor='val_loss',
+        dirpath=config.MODEL_PATH,
+        filename='be_model.pt',
+        auto_insert_metric_name=False
+    )
     
     # create your own theme!
     progress_bar = RichProgressBar(
@@ -62,7 +74,7 @@ if __name__ == "__main__":
         # fast_dev_run=True,
         callbacks=[
             progress_bar,
-            # MyProgressBar()
+            checkpoint_callback
         ],
         logger=wandb_logger
     )
