@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Nov, 2023
+Last Update: 7 Nov, 2023
 
 # Code Description
 ======================
@@ -13,6 +13,8 @@ Description: A re-implementation of the token-learner module [1]
 Adapted from:
 - Original Source: https://github.com/google-research/scenic/blob/main/scenic/projects/token_learner/model.py
 - Original Authors: Scenic Authors
+
+- Other source: https://github.com/rish-16/tokenlearner-pytorch/blob/main/tokenlearner_pytorch/tokenlearner_pytorch.py
 
 # References
 =============
@@ -32,33 +34,7 @@ import torch.nn.functional as F
 
 from transformer import FeedFowardLayer, LayerNormalization
 
-class MlpBlock(nn.Module):
-    """
-        Transformer FeedForward block
-        Can use FeedForwardLayer instead
-    """
-    def __init__(
-        self, 
-        in_dim, 
-        mlp_dim, 
-        out_dim, 
-        dropout_rate, 
-        activation=nn.GELU()
-    ):
-        super().__init__()
-        self.fc1 = nn.Linear(in_dim, mlp_dim)
-        self.activation = activation
-        self.fc2 = nn.Linear(mlp_dim, out_dim)
-        self.dropout = nn.Dropout(dropout_rate)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.activation(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        return x
-
-class TokenLearnerModuleV11(nn.Module):
+class TokenLearnerV11(nn.Module):
     """
         Re-Implementation if TokenLearner version 1.1
         - MLP (2 dense layers with gelu) for generating attention map
@@ -79,44 +55,38 @@ class TokenLearnerModuleV11(nn.Module):
     def __init__(
         self, 
         num_tokens:int=config.NUM_LEARNED_TOKENS, 
-        bottleneck_dim=64, 
-        dropout_rate=config.TOKEN_LEARNER_DROPOUT
+        bottleneck_dim:int=64, 
+        dropout_rate:float=0.0
     ):
         super().__init__()
+        
         self.num_tokens = num_tokens
         self.bottleneck_dim = bottleneck_dim
         self.dropout_rate = dropout_rate
-        
-        self.layer_norm = LayerNormalization()
-        
-        self.token_masking = FeedFowardLayer(
-            in_dim=config.EMBEDDING_DIM,
-            mlp_dim=self.bottleneck_dim,
-            out_dim=self.num_tokens,            
-            activation_fn="GELU"
+
+        self.token_masking = nn.Sequential(
+            LayerNormalization(),
+            nn.Linear(in_features=config.EMBEDDING_DIM, out_features=bottleneck_dim),
+            nn.GELU(),
+            nn.Dropout(p=self.dropout_rate),
+            nn.Linear(in_features=bottleneck_dim, out_features=self.num_tokens)
         )
 
-    def forward(self, inputs):
+    def forward(self, inputs, deterministic=True):
         if inputs.dim() == 4:
-            b, c, h, w = inputs.size()
-            inputs = inputs.view(b, h * w, c)
-        
-        b, h_w, c = inputs.shape
+            B, C, H, W = inputs.size()
+            inputs = inputs.view(B, H * W, C)
 
+        feature_shape = inputs.size()
         selected = inputs
-        # print(f"LN in: {selected.shape}")
-        selected = self.layer_norm(selected)
-        # print(f"LN out: {selected.shape}")
 
         selected = self.token_masking(selected)
-        # print(f"Token masking out: {selected.shape}")
-        selected = selected.view(b, -1, self.num_tokens)  # Shape: [bs, h*w, n_token].
-        selected = selected.transpose(1, 2)  # Shape: [bs, n_token, h*w].
-        selected = F.softmax(selected, dim=-1)
+        selected = selected.view(B, -1, self.num_tokens)
+        selected = selected.permute(0, 2, 1)
+        weights = F.softmax(selected, dim=-1)
 
         feat = inputs
-        feat = feat.view(b, -1, config.EMBEDDING_DIM)  # Shape: [bs, h*w, c].
-        # print(f"feat: {feat.shape} - selected: {selected.shape}")
-        feat = torch.einsum('...si,...id->...sd', [selected, feat])
+        feat = feat.view(B, -1, C)
+        feat = torch.einsum('...si,...id->...sd', (weights, feat))
 
-        return feat.view(-1, c, self.num_tokens)
+        return feat.view(B, C, self.num_tokens), weights

@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Nov, 2023
+Last Update: 7 Nov, 2023
 
 # Code Description
 ======================
@@ -15,7 +15,7 @@ from film_layers import FiLMEncoder
 
 import lightning.pytorch as pl
 
-from token_learner import TokenLearnerModuleV11
+from token_learner import TokenLearnerV11
 
 from typing import Tuple, Union
 import torch
@@ -24,7 +24,7 @@ from torchmetrics.text import CharErrorRate, WordErrorRate
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
 from utils.model_utils import TextEncoder, fetch_random_sample_from_batch, decode_predictions, plot_attention
-from utils.data_utils import History
+import utils.data_utils as data_utils
 
 class RT1Encoder(nn.Module):
     def __init__(
@@ -46,9 +46,16 @@ class RT1Encoder(nn.Module):
         )
         
         # Token Learner
-        self.token_learner = TokenLearnerModuleV11()
+        self.token_learner = TokenLearnerV11()
         
-    def _encode(self, input_ids, attn_mask, token_type_ids, imgs):
+    def _encode(
+        self, 
+        input_ids:torch.Tensor, 
+        attn_mask:torch.Tensor, 
+        token_type_ids:torch.Tensor, 
+        imgs:torch.Tensor, 
+        return_vl_tokens:bool=False
+    ):
         
         B, C, H, W = imgs.shape
         
@@ -64,11 +71,13 @@ class RT1Encoder(nn.Module):
             conditioning=text_enc
         )
 
-        N, C, H_W = vl_tokens.shape
         # Extract learned tokens
-        learned_tokens  = self.token_learner(vl_tokens.view(N, H_W, C))
+        learned_tokens, spatial_attn_weights  = self.token_learner(vl_tokens)
         
-        return text_enc_h_state, learned_tokens
+        if return_vl_tokens:
+            return text_enc_h_state, learned_tokens, vl_tokens, spatial_attn_weights
+        else:
+            return text_enc_h_state, learned_tokens, spatial_attn_weights
         
 
     def forward(self, input_ids, attn_mask, token_type_ids, imgs):
@@ -78,7 +87,7 @@ class RT1Encoder(nn.Module):
         B, C, H, W = imgs.shape
         
         # Generate history
-        history = History(imgs)
+        history = data_utils.History(imgs)
 
         tokenized_inputs = torch.zeros(
             (B, config.NUM_HISTORY+1, config.D_MODEL, config.NUM_LEARNED_TOKENS),
@@ -87,17 +96,17 @@ class RT1Encoder(nn.Module):
 
         for i in range(config.NUM_HISTORY+1):
             # print(history.carousel[:, :, h, :, :].shape)
-            text_enc_h_state, tokens = self._encode(
+            text_enc_h_state, tokens, spatial_attn_weights = self._encode(
                 input_ids=input_ids,
                 attn_mask=attn_mask,
                 token_type_ids=token_type_ids,
-                imgs=history.carousel[:, :, i, :, :].to(config.DEVICE)
+                imgs=history.carousel[:, :, i, :, :].to(config.DEVICE),
+                return_vl_tokens=False
             )
 
             tokenized_inputs[:,  i] = tokens 
             
-            
-        return text_enc_h_state, tokenized_inputs.view(B, -1, config.D_MODEL)
+        return text_enc_h_state, tokenized_inputs.view(B, -1, config.D_MODEL), spatial_attn_weights
 
     
     
@@ -190,17 +199,9 @@ class RT1Decoder(nn.Module):
         self.norm = LayerNormalization()
         self.action_generator = ActionGenerator()
         
-    def _decode_predictions(self, preds, method:str="greedy"):
-        """
-            Args:
-                preds: predictions (logits)
-                method: decoding strategy. one of ["greedy", "beam-search"]
-                
-            Returns:
-                actions: decoded predictions as sequence of actions.
-            
-        """
-        pass
+        # weights tying
+        self.target_embedding.weight = self.action_generator.proj[0].weight
+ 
     
     def forward(
         self, 
@@ -237,6 +238,9 @@ class RT1(pl.LightningModule):
         freeze_cnn_backbone:bool=True
     ):
         super().__init__()
+        
+        assert condig.EMBEDDING_DIM == config.D_MODEL, f"Make sure the embnedding dimension is equal to the dimension in the transformer model({config.D_MODEL})"
+        
         self.encoder = RT1Encoder(
             cnn_bacnbone=cnn_bacnbone, 
             num_res_blocks=num_res_blocks, 
@@ -284,7 +288,7 @@ class RT1(pl.LightningModule):
         imgs:torch.tensor,
     ):
         
-        text_enc_last_h, learned_tokens = self.encoder(
+        text_enc_h_state, learned_tokens, spatial_attn_weights = self.encoder(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
             token_type_ids=token_type_ids, 
@@ -308,6 +312,64 @@ class RT1(pl.LightningModule):
             target_mask=target_mask,
             debug=debug
         )
+    
+    def _greedy_decode(
+        self,
+        decoder_inp:torch.Tensor, 
+        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
+        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
+        target_mask:torch.tensor=None,
+        debug:bool=False
+    ):
+        self.eval()
+
+        sos_token = config.TARGETS_MAPPING["[SOS]"]
+        eos_token = config.TARGETS_MAPPING["[EOS]"]
+
+        input_ids=batch["ids"].to(config.DEVICE)
+        attn_mask=batch["mask"].to(config.DEVICE)
+        token_type_ids=batch["token_type_ids"].to(config.DEVICE)
+        imgs=batch["in_state"].to(config.DEVICE)
+        src_mask=(
+            batch["source_mask"].to(config.DEVICE), 
+            batch["source_mask_tokens"].to(config.DEVICE)
+        )
+        text_enc_h_state, learned_tokens, spatial_attn_weights = self._encode(
+            input_ids=input_ids, 
+            attn_mask=attn_mask, 
+            token_type_ids=token_type_ids, 
+            imgs=imgs    
+        )
+
+
+        decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(1)
+
+        # decoding procedure
+        for t in range(1, max_len):
+            # # stop decoding if max= len reached
+            # create causal mask for decoding
+            decoder_mask = generate_causal_attention_mask(
+                dim=decoder_inp.shape[1]
+            ).type_as(attn_mask)
+
+            # print(decoder_mask[0, t-1].float())
+
+            # generate predictions
+            logits, _, _, _ = self._decode(
+                decoder_inp=decoder_inp, 
+                encoder_outs=(text_enc_last_h, learned_tokens), 
+                src_mask=src_mask, 
+                target_mask=decoder_mask
+            )
+
+            # apply softmax
+            probs = nn.functional.softmax(logits, dim=-1)
+            # perform greedy decoding
+            next_tok = torch.argmax(probs[:, -1, :], dim=-1)
+            # update decoder input
+            decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
+
+        return decoder_inp[0].cpu().detach()
     
     def decode_predictions(self, predicted_ids:torch.Tensor)->list:
 
@@ -447,14 +509,13 @@ class RT1(pl.LightningModule):
         
         with open(config.LOGGING_FILE, "a") as f:
             f.write(f"Epoch #{self.current_epoch}\n")
-            for (pred, label) in zip(self.validation_step_outputs, self.validation_step_targets):
-                cer = self.cer_fn(pred, label).item()
-                wer = self.wer_fn(pred, label).item()
-                f.write(f"Predicted \t: {pred}\n")
-                f.write(f"Actual \t\t: {label}\n")
-                f.write(f"CER \t\t: {cer:.4f}\n")
-                f.write(f"WER \t\t: {wer:.4f}\n\n")
-                break
+            pred, label = self.validation_step_outputs[-1], self.validation_step_targets[-1]
+            cer = self.cer_fn(pred, label).item()
+            wer = self.wer_fn(pred, label).item()
+            f.write(f"Predicted \t: {pred}\n")
+            f.write(f"Actual \t\t: {label}\n")
+            f.write(f"CER \t\t: {cer:.4f}\n")
+            f.write(f"WER \t\t: {wer:.4f}\n\n")
         
         if len(self.self_attn_weights) > 0:
             # plot attention weights
@@ -463,7 +524,8 @@ class RT1(pl.LightningModule):
                 show=False, 
                 pre_fix="val_selfattn", 
                 folder="val",
-                epoch=self.current_epoch        
+                epoch=self.current_epoch,
+                wandb_logging=True
             )
             
             plot_attention(
@@ -472,7 +534,8 @@ class RT1(pl.LightningModule):
                 pre_fix="val_crossattn", 
                 show=False, 
                 folder="val",
-                epoch=self.current_epoch        
+                epoch=self.current_epoch,
+                wandb_logging=True
             )   
             
             plot_attention(
@@ -480,7 +543,8 @@ class RT1(pl.LightningModule):
                 pre_fix="val_crossattn_tokens", 
                 show=False, 
                 folder="val",
-                epoch=self.current_epoch        
+                epoch=self.current_epoch,
+                wandb_logging=True
             )             
         # free memory
         self.validation_step_outputs.clear()  

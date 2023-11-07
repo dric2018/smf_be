@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Nov, 2023
+Last Update: 7 Nov, 2023
 """
 
 import albumentations as A
@@ -79,7 +79,8 @@ IMG_ENCODER_BACKBONES = {
     "efficientnet_b3" : "efficientnet_b3.ra2_in1k", # 10M
     "efficientnet_b4" : "efficientnet_b4.ra2_in1k", # 19.3M
     "mobilenet-v3-small": "mobilenetv3_small_100.lamb_in1k", # 2M
-    "mobilenet-v3-large": "mobilenetv3_large_100.ra_in1k", # 5.5M
+    "mobilenet-v3-large": "mobilenetv3_large_100.ra_in1k", # 5.5M,
+    "vit_tiny": "vit_tiny_patch16_224.augreg_in21k_ft_in1k", # 5.7M
 }
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
@@ -91,9 +92,9 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 16
-EPOCHS = 1 #200
-LR = 2e-4
+BATCH_SIZE = 2
+EPOCHS = 5 #200
+LR = 1e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
@@ -120,6 +121,7 @@ NUM_CHANNELS = {
     "efficientnet_b3": 384,
     "efficientnet_b4": 448,
     "resnet50": 2048,
+    # "vit_small": 
 }
 ENCODER_DROPOUT_RATE = 0.25
 EMBEDDING_DIM = 512
@@ -132,7 +134,7 @@ INF = 1e9
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
-N_DECODER_LAYERS = 1
+N_DECODER_LAYERS = 2
 N_HEADS = 4
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM

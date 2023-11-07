@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 31 Oct, 2023
+Last Update: 7 Nov, 2023
 """
 
 from activations import Swish
@@ -204,7 +204,7 @@ class FiLMEncoder(nn.Module):
             self.res_blocks.append(ResBlockDWConv(self.n_channels, self.n_channels))
 
 
-    def forward(self, x, conditioning):
+    def forward(self, x, conditioning, flatten:bool=False):
                 
         # print(f"x: {x.shape} - desc (emb): {conditioning.shape}")
         out = self.feature_extractor(x)
@@ -215,6 +215,8 @@ class FiLMEncoder(nn.Module):
             out = res_block(out, conditioning)
         
         # print(f"out: {out.shape}")
-        vl_tokens = out.view(N, C, -1) # shape: [N, C, H*W] - 49, 64 or 81 vision-language tokens
-        
+        if flatten:
+            vl_tokens = out.view(N, C, -1) # shape: [N, C, H*W] - 49, 64 or 81 vision-language tokens
+        else:
+            vl_tokens = out # shape: [N, C, H, W]
         return vl_tokens

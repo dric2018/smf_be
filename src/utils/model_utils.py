@@ -24,6 +24,9 @@ from transformers import AutoTokenizer, AutoModel, AutoConfig
 
 from transformer import generate_causal_attention_mask
 
+import wandb
+
+
 class TextEncoder(nn.Module):
     def __init__(
         self, 
@@ -174,7 +177,8 @@ def plot_attention(
     kind:str=None, 
     show:bool=True,
     epoch:int=0,
-    folder:str="train"
+    folder:str="train",
+    wandb_logging:bool=False
 ):
     
     num_layers = 1
@@ -238,10 +242,14 @@ def plot_attention(
 
         if show:
             pyplot.show()
-        else:
-            fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
-            fig.savefig(f"{fn}.png")
-            pyplot.close()
+        else:              
+            if wandb_logging:
+                wandb.log({f"{pre_fix}_epoch_{epoch}": wandb.Image(fig)})    
+                pyplot.close()
+            else:
+                fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+                fig.savefig(f"{fn}.png")                 
+                pyplot.close()
                         
     else:
         # Extract attention weights for the chosen example
@@ -255,10 +263,15 @@ def plot_attention(
 
         if show:
             pyplot.show()
-        else:
-            fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
-            fig.savefig(f"{fn}.png")
-            pyplot.close()
+        else:            
+            if wandb_logging:
+                wandb.log({f"{pre_fix}_epoch_{epoch}": wandb.Image(fig)})    
+                pyplot.close()
+            else:
+                fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+                fig.savefig(f"{fn}.png")                 
+            
+                pyplot.close()
 
 
 def greedy_decoding(
