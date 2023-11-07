@@ -239,7 +239,7 @@ class RT1(pl.LightningModule):
     ):
         super().__init__()
         
-        assert condig.EMBEDDING_DIM == config.D_MODEL, f"Make sure the embnedding dimension is equal to the dimension in the transformer model({config.D_MODEL})"
+        assert config.EMBEDDING_DIM == config.D_MODEL, f"Make sure the embnedding dimension is equal to the dimension in the transformer model({config.D_MODEL})"
         
         self.encoder = RT1Encoder(
             cnn_bacnbone=cnn_bacnbone, 
@@ -288,7 +288,7 @@ class RT1(pl.LightningModule):
         imgs:torch.tensor,
     ):
         
-        text_enc_h_state, learned_tokens, spatial_attn_weights = self.encoder(
+        text_enc_last_h, learned_tokens, spatial_attn_weights = self.encoder(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
             token_type_ids=token_type_ids, 
@@ -334,7 +334,7 @@ class RT1(pl.LightningModule):
             batch["source_mask"].to(config.DEVICE), 
             batch["source_mask_tokens"].to(config.DEVICE)
         )
-        text_enc_h_state, learned_tokens, spatial_attn_weights = self._encode(
+        text_enc_last_h, learned_tokens, spatial_attn_weights = self._encode(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
             token_type_ids=token_type_ids, 
