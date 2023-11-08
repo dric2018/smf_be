@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 7 Nov, 2023
+Last Update: 8 Nov, 2023
 
 # Code Description
 ======================
@@ -14,6 +14,8 @@ import config
 from film_layers import FiLMEncoder
 
 import lightning.pytorch as pl
+
+import numpy as np
 
 from token_learner import TokenLearnerV11
 
@@ -261,7 +263,9 @@ class RT1(pl.LightningModule):
         # weights init
         self.apply(self._init_weights)  
         
-        # placeholders
+        # containers
+        self.training_step_outputs = []
+        self.training_step_targets = []
         self.validation_step_outputs = []
         self.validation_step_targets = []
         self.self_attn_weights = []
@@ -271,7 +275,8 @@ class RT1(pl.LightningModule):
         
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+            # Xavier/Glorot initialization for linear layers
+            torch.nn.init.xavier_uniform_(module.weight)
             if module.bias is not None:
                 torch.nn.init.zeros_(module.bias)
         elif isinstance(module, nn.Embedding):
@@ -452,7 +457,11 @@ class RT1(pl.LightningModule):
         labels = batch["motor_cmd"]["labels"]
         train_loss = self.loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1))
         
-        # return loss
+        preds = logits.softmax(dim=-1).argmax(dim=-1)
+        self.training_step_outputs.append(preds[0])
+        self.training_step_targets.append(labels[0])
+        
+        # return loss and logits
         metrics = {"loss": train_loss, "train_loss": train_loss}
         self.log(
             "train_loss", 
@@ -465,6 +474,34 @@ class RT1(pl.LightningModule):
         )
         
         return metrics
+    
+    def on_train_epoch_end(self):
+        all_preds = torch.stack(self.training_step_outputs)
+        all_labels = torch.stack(self.training_step_targets)
+        
+        rand_idx = np.random.randint(all_preds.shape[0])
+
+        # decode predictions
+        pred = self.decode_predictions(
+            predicted_ids=all_preds[rand_idx].unsqueeze(0)
+        )[0]
+        label = self.decode_predictions(
+            predicted_ids=all_labels[rand_idx].unsqueeze(0)
+        )[0]
+        # log decoded sentenses
+        with open(config.LOGGING_FILE, "a") as f:            
+            f.write(f"Epoch #{self.current_epoch}\n")
+            f.write(f"Train \n")
+            cer = self.cer_fn(pred, label).item()
+            wer = self.wer_fn(pred, label).item()
+            f.write(f"Predicted \t: {pred}\n")
+            f.write(f"Actual \t\t: {label}\n")
+            f.write(f"CER \t\t: {cer:.4f}\n")
+            f.write(f"WER \t\t: {wer:.4f}\n\n")      
+            
+        # free mem
+        self.training_step_outputs.clear()
+        self.training_step_targets.clear()
     
     def validation_step(self, batch, batch_idx):
         
@@ -508,8 +545,8 @@ class RT1(pl.LightningModule):
     def on_validation_epoch_end(self):
         
         with open(config.LOGGING_FILE, "a") as f:
-            f.write(f"Epoch #{self.current_epoch}\n")
             pred, label = self.validation_step_outputs[-1], self.validation_step_targets[-1]
+            f.write(f"Validation \n")
             cer = self.cer_fn(pred, label).item()
             wer = self.wer_fn(pred, label).item()
             f.write(f"Predicted \t: {pred}\n")

@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 7 Nov, 2023
+Last Update: 8 Nov, 2023
 """
 
 import albumentations as A
@@ -92,14 +92,14 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8
-EPOCHS = 10 #200
-LR = 1e-4
-OPTIMIZER = "AdamW" 
+BATCH_SIZE = 16
+EPOCHS = 20 #200
+LR = 3e-4
+OPTIMIZER = "Adam" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
-GRAD_CLIP_VAL = 0.5
-WEIGHT_DECAY = 1e-4
+GRAD_CLIP_VAL = 2.
+WEIGHT_DECAY = 1e-5
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
@@ -123,11 +123,11 @@ NUM_CHANNELS = {
     "resnet50": 2048,
     # "vit_small": 
 }
-ENCODER_DROPOUT_RATE = 0.25
+ENCODER_DROPOUT_RATE = 0.3
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = 0.25
+TOKEN_LEARNER_DROPOUT = 0.3
 
 ### Decoder
 INF = 1e9
@@ -140,7 +140,7 @@ EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
 D_FF = 2048
-DECODER_DROPOUT_RATE = 0.25
+DECODER_DROPOUT_RATE = 0.3
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

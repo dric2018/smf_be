@@ -320,7 +320,7 @@ def greedy_decoding(
             decoder_inp=decoder_inp, 
             encoder_outs=(text_enc_last_h, learned_tokens), 
             src_mask=src_mask, 
-            target_mask=decoder_mask
+            target_mask=decoder_mask[:, t]
         )
 
         # apply softmax
