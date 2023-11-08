@@ -15,7 +15,7 @@ from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelC
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 
-from rt1 import RT1
+from rt1 import RT1CRAM
 
 from torchinfo import summary
 
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     _ = seed_everything(config.SEED)
     
     # build model
-    rt1 = RT1(
+    rt1 = RT1CRAM(
         cnn_bacnbone="efficientnet_b3", 
         num_res_blocks=config.NUM_RES_BLOCKS,
         freeze_cnn_backbone=False

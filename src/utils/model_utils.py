@@ -354,3 +354,11 @@ def fetch_random_sample_from_batch(batch, batch_size:int):
             sample[k] = v[idx].unsqueeze(0)
                     
     return sample
+
+
+def has_nan(x:torch.Tensor):
+    return torch.isnan(x).any().item()
+
+
+class StopTrainingException(Exception):
+    pass

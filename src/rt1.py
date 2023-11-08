@@ -14,6 +14,8 @@ import config
 from film_layers import FiLMEncoder
 
 import lightning.pytorch as pl
+import logging
+logging.basicConfig(level="INFO")
 
 import numpy as np
 
@@ -25,7 +27,8 @@ import torch.nn as nn
 from torchmetrics.text import CharErrorRate, WordErrorRate
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
-from utils.model_utils import TextEncoder, fetch_random_sample_from_batch, decode_predictions, plot_attention
+import utils.model_utils as model_utils
+from utils.model_utils import TextEncoder, fetch_random_sample_from_batch, decode_predictions, plot_attention, StopTrainingException
 import utils.data_utils as data_utils
 
 class RT1Encoder(nn.Module):
@@ -231,7 +234,7 @@ class RT1Decoder(nn.Module):
         return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
     
     
-class RT1(pl.LightningModule):
+class RT1CRAM(pl.LightningModule):
     def __init__(
         self,
         cnn_bacnbone:str="efficientnet_b3",
@@ -420,12 +423,14 @@ class RT1(pl.LightningModule):
             weight_decay=config.WEIGHT_DECAY
         )
         
-        scheduler = getattr(torch.optim.lr_scheduler, config.LR_SCHEDULER["type"])(
-            opt, 
-            **config.LR_SCHEDULER["params"]
-        )
+        # scheduler = getattr(torch.optim.lr_scheduler, config.LR_SCHEDULER["type"])(
+        #     opt, 
+        #     **config.LR_SCHEDULER["params"]
+        # )
         
-        return {"optimizer": opt, "lr_scheduler": scheduler, "monitor": "val_loss"}
+        # return {"optimizer": opt, "lr_scheduler": scheduler, "monitor": "val_loss"}
+        
+        return opt
     
     def _step(self, batch):
         
@@ -452,6 +457,15 @@ class RT1(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         
         logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self._step(batch)  
+        
+        # check if attention weights blew up
+        try:
+            if model_utils.has_nan(cross_attn_ws_tokens):
+                    raise StopTrainingException(
+                        "Training was manually stopped because attention NaNs encountered in cross-attention weights."
+                    )
+        except StopTrainingException as e:
+            logging.error(e)
         
         # compute loss
         labels = batch["motor_cmd"]["labels"]

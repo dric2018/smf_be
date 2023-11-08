@@ -95,7 +95,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 16
 EPOCHS = 20 #200
 LR = 3e-4
-OPTIMIZER = "Adam" 
+OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
 GRAD_CLIP_VAL = 2.
@@ -104,10 +104,10 @@ LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
         "mode":'min', 
-        "factor":0.2, 
-        "patience":3, 
-        "min_lr":1e-7, 
-        "verbose":  True
+        "factor":0.1, 
+        "patience":5, 
+        "min_lr":1e-6, 
+        "verbose":  False
     }
 }
 ## Robotics Transformer
