@@ -264,7 +264,7 @@ class RT1CRAM(pl.LightningModule):
         self.wer_fn = WordErrorRate()
         
         # weights init
-        self.apply(self._init_weights)  
+        # self.apply(self._init_weights)  
         
         # containers
         self.training_step_outputs = []
@@ -420,7 +420,7 @@ class RT1CRAM(pl.LightningModule):
         opt = getattr(torch.optim, config.OPTIMIZER)(
             params=[p for p in self.parameters() if p.requires_grad], 
             lr=config.LR,
-            weight_decay=config.WEIGHT_DECAY
+            # weight_decay=config.WEIGHT_DECAY
         )
         
         # scheduler = getattr(torch.optim.lr_scheduler, config.LR_SCHEDULER["type"])(

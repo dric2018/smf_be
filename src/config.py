@@ -67,7 +67,7 @@ HISTORY_AUGS = A.Compose([
 ])
 MAX_LEN = 16
 NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS = 2
-VALIDATION_PCT = .15
+VALIDATION_PCT = .2
 
 # model
 IMG_ENCODER_BACKBONES = {
@@ -92,9 +92,9 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 16
-EPOCHS = 20 #200
-LR = 3e-4
+BATCH_SIZE = 8
+EPOCHS = 25 #200
+LR = 3e-5
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
