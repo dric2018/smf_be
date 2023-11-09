@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Nov, 2023
+Last Update: 8 Nov, 2023
 """
 
 import config
@@ -13,9 +13,7 @@ from matplotlib import pyplot
 
 import numpy as np
 
-import os 
-
-import sys
+import os
 
 import timm
 import torch
@@ -363,23 +361,23 @@ def has_nan(x:torch.Tensor):
 
 
 class StopTrainingException(Exception):
-    sys.exit()
+    pass
 
-class TelegramCallback(Callback):
-    """
-        Courtesy of Robert Bracco (Made-Up Masters@medium.com)
+# class TelegramCallback(Callback):
+#     """
+#         Courtesy of Robert Bracco (Made-Up Masters@medium.com)
 
-        source: https://medium.com/@robertbracco1/how-to-write-a-telegram-bot-to-send-messages-with-python-part-2-1d9bf6ddc652
-    """
+#         source: https://medium.com/@robertbracco1/how-to-write-a-telegram-bot-to-send-messages-with-python-part-2-1d9bf6ddc652
+#     """
     
-    def on_epoch_end(self, trainer, pl_module):
-        include = ["epoch", "train_loss", "val_loss"]
-        d = {k:round(float(v), 3) for k,v in         
-             trainer.callback_metrics.items() if k in include}
+#     def on_epoch_end(self, trainer, pl_module):
+#         include = ["epoch", "train_loss", "val_loss"]
+#         d = {k:round(float(v), 3) for k,v in         
+#              trainer.callback_metrics.items() if k in include}
         
-        messages = [f"{k} : {v}" for k,v in d.items()]
+#         messages = [f"{k} : {v}" for k,v in d.items()]
         
-        try:
-            telegram_send.send(messages=[messages])
-        except Exception as e: 
-            print("Unable to send:", e)
+#         try:
+#             telegram_send.send(messages=[messages])
+#         except Exception as e: 
+#             print("Unable to send:", e)

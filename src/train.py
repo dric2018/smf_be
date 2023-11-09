@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Nov, 2023
+Last Update: 9 Nov, 2023
 """
 import config
 
@@ -27,7 +27,7 @@ if __name__ == "__main__":
     
     # build model
     rt1 = RT1CRAM(
-        cnn_bacnbone="efficientnet_b3", 
+        cnn_bacnbone=config.SELECTED_CNN_BACKBONE, 
         num_res_blocks=config.NUM_RES_BLOCKS,
         freeze_cnn_backbone=False
     ).cuda()
@@ -36,16 +36,30 @@ if __name__ == "__main__":
     summary(model=rt1)
     
     # define loggers
-    # tb_logger = TensorBoardLogger(save_dir="tb_logs", name="RT1")
-    wandb_logger = WandbLogger(project='SMF-Be', log_model=True, save_dir=config.LOGS_PATH)
-    
+    wandb_logger = WandbLogger(
+        name="be_model",
+        project='SMF-Be', 
+        log_model=True, 
+        save_dir=config.LOGS_PATH,
+        checkpoint_name="be_model"
+    )
+
     # callbacks
     checkpoint_callback = ModelCheckpoint(
         monitor='val_loss',
+        mode="min",
         dirpath=config.MODEL_PATH,
-        filename='be_model.pt',
-        auto_insert_metric_name=False
+        filename='be_model',
+        auto_insert_metric_name=False,
+        save_on_train_epoch_end=False,
+        every_n_epochs=1
     )
+
+
+    lr_monitor = LearningRateMonitor(logging_interval='epoch')
+
+    
+    
     
     # create your own theme!
     progress_bar = RichProgressBar(
@@ -74,7 +88,8 @@ if __name__ == "__main__":
         # fast_dev_run=True,
         callbacks=[
             progress_bar,
-            checkpoint_callback
+            lr_monitor,
+            # MyProgressBar()
         ],
         logger=wandb_logger
     )

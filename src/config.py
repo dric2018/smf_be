@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 8 Nov, 2023
+Last Update: 9 Nov, 2023
 """
 
 import albumentations as A
@@ -92,9 +92,9 @@ TOKENIZER_CONFIG = {
 
 # training
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8
-EPOCHS = 25 #200
-LR = 3e-5
+BATCH_SIZE = 16
+EPOCHS = 30 #200
+LR = 3e-4
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.1
@@ -112,7 +112,7 @@ LR_SCHEDULER = {
 }
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 3
+NUM_RES_BLOCKS = 5
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -134,12 +134,12 @@ INF = 1e9
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
-N_DECODER_LAYERS = 2
+N_DECODER_LAYERS = 1
 N_HEADS = 4
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
-D_FF = 2048
+D_FF = 1024
 DECODER_DROPOUT_RATE = 0.3
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16

@@ -19,6 +19,8 @@ logging.basicConfig(level="INFO")
 
 import numpy as np
 
+import sys
+
 from token_learner import TokenLearnerV11
 
 from typing import Tuple, Union
@@ -201,7 +203,7 @@ class RT1Decoder(nn.Module):
         )
                 
         self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
-        self.norm = LayerNormalization()
+        # self.norm = LayerNormalization()
         self.action_generator = ActionGenerator()
         
         # weights tying
@@ -228,7 +230,7 @@ class RT1Decoder(nn.Module):
             debug=debug
         )
         
-        out = self.norm(out)
+        # out = self.norm(out)
         out = self.action_generator(out)
         
         return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
@@ -264,7 +266,7 @@ class RT1CRAM(pl.LightningModule):
         self.wer_fn = WordErrorRate()
         
         # weights init
-        # self.apply(self._init_weights)  
+        self.apply(self._init_weights)  
         
         # containers
         self.training_step_outputs = []
@@ -461,9 +463,10 @@ class RT1CRAM(pl.LightningModule):
         # check if attention weights blew up
         try:
             if model_utils.has_nan(cross_attn_ws_tokens):
-                    raise StopTrainingException(
+                raise StopTrainingException(
                         "Training was manually stopped because attention NaNs encountered in cross-attention weights."
                     )
+                sys.exit()
         except StopTrainingException as e:
             logging.error(e)
         
