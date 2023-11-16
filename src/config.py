@@ -34,6 +34,7 @@ LOGGING_FILE = "../logs/logs.txt"
 
 # Vocabulary & Maps
 SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
+SPECIAL_TOKEN_IDS = [0, 1, 2]
 TARGETS         = SPECIAL_TOKENS + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
@@ -84,7 +85,7 @@ IMG_ENCODER_BACKBONES = {
 }
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
-PRETRAINED_CNN = False
+PRETRAINED_CNN = True
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
@@ -95,14 +96,14 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 32
-EPOCHS = 25 #200
-LR = 3e-6
+BATCH_SIZE = 16
+EPOCHS = 100 #200
+LR = 2e-6
 OPTIMIZER = "AdamW" 
 NUM_WORKERS = 4
-LABEL_SMOOTHING = 0.1
+LABEL_SMOOTHING = 0.2
 GRAD_CLIP_VAL = 2
-WEIGHT_DECAY = 1e-6
+WEIGHT_DECAY = 5e-6
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
@@ -124,7 +125,6 @@ NUM_CHANNELS = {
     "efficientnet_b3": 384,
     "efficientnet_b4": 448,
     "resnet50": 2048,
-    # "vit_small": 
 }
 ENCODER_DROPOUT_RATE = 0.15
 EMBEDDING_DIM = 512
@@ -142,7 +142,7 @@ N_DECODER_LAYERS = 1
 N_HEADS = 8
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
-D_K = D_MODEL // N_HEADS # 4096 from Tensorflow implementation
+D_K = D_MODEL // N_HEADS 
 D_FF = 1024
 DECODER_DROPOUT_RATE = 0.2
 ACTION_BINS = 256

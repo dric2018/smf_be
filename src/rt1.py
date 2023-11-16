@@ -218,7 +218,7 @@ class RT1Decoder(nn.Module):
         encoder_outs:Tuple[torch.Tensor, torch.Tensor],
         src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
-        return_weights:bool=True,
+        return_actions:bool=True,
         debug:bool=False
     ):
         # embed inputs
@@ -233,7 +233,9 @@ class RT1Decoder(nn.Module):
         )
         
         out = self.norm(out)
-        out = self.action_generator(out)
+        
+        if return_actions:
+            out = self.action_generator(out)
         
         return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
     
@@ -314,14 +316,16 @@ class RT1CRAM(pl.LightningModule):
         encoder_outs:Tuple[torch.Tensor, torch.Tensor],
         src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
         target_mask:torch.tensor=None,
-        debug:bool=False
+        debug:bool=False,
+        return_actions:bool=True
     ):        
         return self.decoder(
             inp=decoder_inp, 
             encoder_outs=encoder_outs, 
             src_mask=src_mask, 
             target_mask=target_mask,
-            debug=debug
+            debug=debug,
+            return_actions=return_actions
         )
     
     def _greedy_decode(
@@ -386,7 +390,7 @@ class RT1CRAM(pl.LightningModule):
         batch_preds = []
         B = predicted_ids.shape[0]
         for b in range(B):
-            curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids[b].tolist()]
+            curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids[b].tolist() if tok not in config.SPECIAL_TOKEN_IDS]
             batch_preds.append(" ".join(curr_preds))
 
         return batch_preds

@@ -386,9 +386,9 @@ class TransformerDecoder(nn.Module):
         self.num_layers = num_layers
         
         # token embedding
-        self.token_emb = nn.Linear(config.D_MODEL, config.D_MODEL, bias=False) 
+        self.token_emb = nn.Linear(config.D_MODEL, config.D_MODEL) 
         # positional embedding
-        self.position_emb = nn.Linear(config.MAX_LEN, config.D_MODEL, bias=False)
+        self.position_emb = nn.Linear(config.MAX_LEN, config.D_MODEL)
                
         # transformer layers
         self.layers = nn.ModuleList([
