@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 8 Nov, 2023
+Last Update: 14 Nov, 2023
 """
 
 import config
@@ -338,9 +338,17 @@ def decode_predictions(predicted_ids:torch.Tensor)->list:
     curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids.tolist()]        
     return " ".join([tok for tok in curr_preds if tok not in config.SPECIAL_TOKENS])
 
-def fetch_random_sample_from_batch(batch, batch_size:int):
+def fetch_sample_from_batch(
+    batch, 
+    batch_size:int, 
+    random:bool=False
+):
     
-    idx = np.random.randint(batch_size)
+    if random:
+        idx = np.random.randint(batch_size)
+    else:
+        idx = 0
+    
     sample  = {}
     
     for k, v in batch.items():

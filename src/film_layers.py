@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 7 Nov, 2023
+Last Update: 15 Nov, 2023
 """
 
 from activations import Swish
@@ -56,7 +56,7 @@ class FiLMBlockV2(nn.Module):
         
     def forward(self, img_features, conditioning):
         
-        assert conditioning.dim() == 2
+        assert conditioning.dim() == 2, f"The conditioning vector has shape {conditioning.shape}. Expected a 2-d vector"
         beta = self.projection_add(conditioning) # beta
         gamma = self.projection_mult(conditioning) # gamma
 
@@ -70,7 +70,6 @@ class FiLMBlockV2(nn.Module):
         # print(f"beta: {beta.shape} - gamma: {gamma.shape}")
         # identity transform.
         result = (1 + gamma) * img_features + beta
-        # Original FiLM paper argues that 1 + gamma centers the initialization at
 
         return result
     
@@ -135,7 +134,7 @@ class ResBlockDWConv(nn.Module):
             stride=1, 
             padding=0
         )
-        self.relu1 = nn.ReLU(inplace=True)
+        self.activation1 = nn.GELU()
 
         self.depthwise_conv2 = nn.Conv2d(
             in_channels=out_c, 
@@ -156,13 +155,14 @@ class ResBlockDWConv(nn.Module):
         self.norm2 = nn.BatchNorm2d(out_c)
         # FiLM block
         self.film = FiLMBlockV2()
+        
         # final activation
-        self.relu2 = nn.ReLU(inplace=True)
+        self.activation2 = nn.GELU()
 
     def forward(self, img_features, conditioning):
         
         img_features = self.conv1(img_features)
-        img_features = self.relu1(img_features)
+        img_features = self.activation1(img_features)
         identity = img_features
 
         img_features = self.depthwise_conv2(img_features)
@@ -171,7 +171,7 @@ class ResBlockDWConv(nn.Module):
         
         # apply FiLM conditioning 
         text_conf_ftrs = self.film(img_features, conditioning)
-        text_conf_ftrs = self.relu2(text_conf_ftrs)
+        text_conf_ftrs = self.activation2(text_conf_ftrs)
         
         # residual connection
         text_conf_ftrs += identity

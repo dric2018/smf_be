@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Nov, 2023
+Last Update: 16 Nov, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -304,7 +304,7 @@ class BEDataModule(pl.LightningDataModule):
             shuffle=True,
             pin_memory=True,
             num_workers=config.NUM_WORKERS,
-            # drop_last=True
+            drop_last=True
         )
 
     def val_dataloader(self):
@@ -317,7 +317,7 @@ class BEDataModule(pl.LightningDataModule):
             shuffle=False,
             num_workers=config.NUM_WORKERS,
             pin_memory=True,
-            # drop_last=True
+            drop_last=True
         )
     
     def test_dataloader(self):
@@ -329,7 +329,7 @@ class BEDataModule(pl.LightningDataModule):
             batch_size=config.BATCH_SIZE,
             shuffle=False,
             num_workers=config.NUM_WORKERS,
-            # drop_last=True
+            drop_last=False
         )
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 7 Nov, 2023
+Last Update: 10 Nov, 2023
 
 # Code Description
 ======================
@@ -55,8 +55,8 @@ class TokenLearnerV11(nn.Module):
     def __init__(
         self, 
         num_tokens:int=config.NUM_LEARNED_TOKENS, 
-        bottleneck_dim:int=64, 
-        dropout_rate:float=0.0
+        bottleneck_dim:int=config.TOKEN_LEARNER_DIM, 
+        dropout_rate:float=config.ENCODER_DROPOUT_RATE
     ):
         super().__init__()
         

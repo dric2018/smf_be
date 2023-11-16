@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 8 Nov, 2023
+Last Update: 15 Nov, 2023
 
 # Code Description
 ======================
@@ -17,6 +17,8 @@ import lightning.pytorch as pl
 import logging
 logging.basicConfig(level="INFO")
 
+import math
+
 import numpy as np
 
 import sys
@@ -30,7 +32,7 @@ from torchmetrics.text import CharErrorRate, WordErrorRate
 from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
 
 import utils.model_utils as model_utils
-from utils.model_utils import TextEncoder, fetch_random_sample_from_batch, decode_predictions, plot_attention, StopTrainingException
+from utils.model_utils import TextEncoder, fetch_sample_from_batch, decode_predictions, plot_attention, StopTrainingException
 import utils.data_utils as data_utils
 
 class RT1Encoder(nn.Module):
@@ -203,7 +205,7 @@ class RT1Decoder(nn.Module):
         )
                 
         self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
-        # self.norm = LayerNormalization()
+        self.norm = LayerNormalization()
         self.action_generator = ActionGenerator()
         
         # weights tying
@@ -220,7 +222,7 @@ class RT1Decoder(nn.Module):
         debug:bool=False
     ):
         # embed inputs
-        inp = self.target_embedding(inp)
+        inp = self.target_embedding(inp) * math.sqrt(config.D_MODEL)
                 
         out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self.transformer(
             inp=inp, 
@@ -230,7 +232,7 @@ class RT1Decoder(nn.Module):
             debug=debug
         )
         
-        # out = self.norm(out)
+        out = self.norm(out)
         out = self.action_generator(out)
         
         return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
@@ -242,7 +244,8 @@ class RT1CRAM(pl.LightningModule):
         cnn_bacnbone:str="efficientnet_b3",
         num_res_blocks:int=config.NUM_RES_BLOCKS,
         num_decoder_layers:int=config.N_DECODER_LAYERS,
-        freeze_cnn_backbone:bool=True
+        freeze_cnn_backbone:bool=True,
+        args=None
     ):
         super().__init__()
         
@@ -254,6 +257,8 @@ class RT1CRAM(pl.LightningModule):
             freeze_cnn_backbone=freeze_cnn_backbone
         )
         
+        self.args = args
+            
         self.decoder = RT1Decoder(num_decoder_layers=num_decoder_layers)
         
         # metrics
@@ -266,7 +271,7 @@ class RT1CRAM(pl.LightningModule):
         self.wer_fn = WordErrorRate()
         
         # weights init
-        self.apply(self._init_weights)  
+        self.decoder.apply(self._init_weights)  
         
         # containers
         self.training_step_outputs = []
@@ -277,18 +282,14 @@ class RT1CRAM(pl.LightningModule):
         self.cross_attn_tokens_weights = []
         self.cross_attn_weights = []
         
+        self.save_hyperparameters()
+        
         
     def _init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            # Xavier/Glorot initialization for linear layers
-            torch.nn.init.xavier_uniform_(module.weight)
-            if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        elif isinstance(module, nn.LayerNorm):
-            torch.nn.init.zeros_(module.bias)
-            torch.nn.init.ones_(module.weight)
+        for p in module.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
         
     def _encode(
         self, 
@@ -325,17 +326,14 @@ class RT1CRAM(pl.LightningModule):
     
     def _greedy_decode(
         self,
-        decoder_inp:torch.Tensor, 
-        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
-        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
-        target_mask:torch.tensor=None,
-        debug:bool=False
+        batch:dict,
+        max_len:int=config.MAX_OUT_SEQ_LEN
     ):
         self.eval()
 
         sos_token = config.TARGETS_MAPPING["[SOS]"]
         eos_token = config.TARGETS_MAPPING["[EOS]"]
-
+        
         input_ids=batch["ids"].to(config.DEVICE)
         attn_mask=batch["mask"].to(config.DEVICE)
         token_type_ids=batch["token_type_ids"].to(config.DEVICE)
@@ -344,13 +342,15 @@ class RT1CRAM(pl.LightningModule):
             batch["source_mask"].to(config.DEVICE), 
             batch["source_mask_tokens"].to(config.DEVICE)
         )
-        text_enc_last_h, learned_tokens, spatial_attn_weights = self._encode(
+        
+        assert input_ids.shape[0] == 1, "can only run decoding strategy for a single instance."
+
+        text_enc_last_h, learned_tokens = self._encode(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
             token_type_ids=token_type_ids, 
             imgs=imgs    
         )
-
 
         decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(1)
 
@@ -418,10 +418,14 @@ class RT1CRAM(pl.LightningModule):
         )
     
     def configure_optimizers(self):
-        
+        if self.args is not None:
+            LR = self.args.learning_rate 
+        else:
+            LR = config.LR
+            
         opt = getattr(torch.optim, config.OPTIMIZER)(
             params=[p for p in self.parameters() if p.requires_grad], 
-            lr=config.LR,
+            lr=LR,
             # weight_decay=config.WEIGHT_DECAY
         )
         
@@ -464,11 +468,12 @@ class RT1CRAM(pl.LightningModule):
         try:
             if model_utils.has_nan(cross_attn_ws_tokens):
                 raise StopTrainingException(
-                        "Training was manually stopped because attention NaNs encountered in cross-attention weights."
+                        "Training was manually stopped because NaNs encountered in cross-attention weights."
                     )
-                sys.exit()
+                
         except StopTrainingException as e:
             logging.error(e)
+            sys.exit()
         
         # compute loss
         labels = batch["motor_cmd"]["labels"]
@@ -489,10 +494,21 @@ class RT1CRAM(pl.LightningModule):
             on_epoch=True, 
             batch_size=config.BATCH_SIZE
         )
+        # log epoch LR
+        final_lr_epoch = float(self.optimizers().param_groups[0]['lr'])
+        self.log(
+            "lr", 
+            final_lr_epoch, 
+            prog_bar=True, 
+            logger=True, 
+            on_step=True, 
+            on_epoch=True
+        )             
         
         return metrics
     
-    def on_train_epoch_end(self):
+    def on_train_epoch_end(self):   
+        
         all_preds = torch.stack(self.training_step_outputs)
         all_labels = torch.stack(self.training_step_targets)
         
@@ -547,9 +563,9 @@ class RT1CRAM(pl.LightningModule):
         
         # Check model's qualitative performance
         # self.greedy_decoding(batch)
-        sample  = fetch_random_sample_from_batch(batch, batch_size=labels.shape[0])
+        sample  = fetch_sample_from_batch(batch, batch_size=labels.shape[0])
 
-        out = self.greedy_decoding(batch=sample, max_len=config.MAX_OUT_SEQ_LEN)
+        out = self._greedy_decode(batch=sample, max_len=config.MAX_OUT_SEQ_LEN)
         decoded = decode_predictions(out)
         actual = decode_predictions(sample["labels"][0])
         
@@ -571,6 +587,7 @@ class RT1CRAM(pl.LightningModule):
             f.write(f"CER \t\t: {cer:.4f}\n")
             f.write(f"WER \t\t: {wer:.4f}\n\n")
         
+        # if self.training: TODO: investigate when to log attention plots to wandb
         if len(self.self_attn_weights) > 0:
             # plot attention weights
             plot_attention(
@@ -581,7 +598,7 @@ class RT1CRAM(pl.LightningModule):
                 epoch=self.current_epoch,
                 wandb_logging=True
             )
-            
+
             plot_attention(
                 self.cross_attn_weights[0],
                 kind="cross", 
@@ -591,7 +608,7 @@ class RT1CRAM(pl.LightningModule):
                 epoch=self.current_epoch,
                 wandb_logging=True
             )   
-            
+
             plot_attention(
                 self.cross_attn_tokens_weights[0], 
                 pre_fix="val_crossattn_tokens", 
@@ -610,62 +627,3 @@ class RT1CRAM(pl.LightningModule):
         
     def test_step(self, batch, batch_idx):
         pass
-
-    def greedy_decoding(
-        self, 
-        batch:dict, 
-        max_len:int=config.MAX_LEN
-    ):
-        if self.device.type == "cpu":
-            self.to(config.DEVICE)
-        self.eval()
-
-        sos_token = config.TARGETS_MAPPING["[SOS]"]
-        eos_token = config.TARGETS_MAPPING["[EOS]"]
-
-        input_ids=batch["ids"].to(config.DEVICE)
-        attn_mask=batch["mask"].to(config.DEVICE)
-        token_type_ids=batch["token_type_ids"].to(config.DEVICE)
-        imgs=batch["in_state"].to(config.DEVICE)
-        src_mask=(
-            batch["source_mask"].to(config.DEVICE), 
-            batch["source_mask_tokens"].to(config.DEVICE)
-        )
-        text_enc_last_h, learned_tokens = self._encode(
-            input_ids=input_ids, 
-            attn_mask=attn_mask, 
-            token_type_ids=token_type_ids, 
-            imgs=imgs    
-        )
-
-
-        decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(1)
-
-        # decoding procedure
-        for t in range(1, max_len):
-            # # stop decoding if max= len reached
-            # create causal mask for decoding
-            decoder_mask = generate_causal_attention_mask(
-                dim=decoder_inp.shape[1]
-            ).type_as(attn_mask)
-
-            # print(decoder_mask[0, t-1].float())
-
-            # generate predictions
-            logits, _, _, _ = self._decode(
-                decoder_inp=decoder_inp, 
-                encoder_outs=(text_enc_last_h, learned_tokens), 
-                src_mask=src_mask, 
-                target_mask=decoder_mask
-            )
-
-            # apply softmax
-            probs = nn.functional.softmax(logits, dim=-1)
-            # perform greedy decoding
-            next_tok = torch.argmax(probs[:, -1, :], dim=-1)
-            # update decoder input
-            decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
-
-        return decoder_inp[0].cpu().detach()
-    
-    

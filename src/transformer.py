@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Nov, 2023
+Last Update: 15 Nov, 2023
 
 # Code Description
 ======================
@@ -83,7 +83,7 @@ def generate_causal_attention_mask(
 class SelfAttentionHead(nn.Module):
     def __init__(self, d_model:int=config.D_MODEL):
         super().__init__()
-        self.inf = 1e9
+        self.inf = config.INF
         self.d_k = d_model
         
         self.dropout = nn.Dropout(p=config.DECODER_DROPOUT_RATE)
@@ -113,7 +113,7 @@ class SelfAttentionHead(nn.Module):
         scaled_attention_logits = matmul_qk / math.sqrt(self.d_k)
 
         if mask is not None:
-            scaled_attention_logits.masked_fill(mask == config.TGT_PAD_TOK_ID, -self.inf)
+            scaled_attention_logits.masked_fill(mask == config.TGT_PAD_TOK_ID, self.inf)
 
         attention_weights = self._softmax(scaled_attention_logits)
         attention_weights = self.dropout(attention_weights)
@@ -176,6 +176,7 @@ class MultiHeadSelfAttention(nn.Module):
         return_weights=True
     ):
         B, L, D = q.shape
+        
         # print("MHSA in: ", q.shape)
         
         head_outputs = [head(q, k, v, mask=mask, return_weights=return_weights) for head in self.attention_heads]
@@ -190,7 +191,7 @@ class MultiHeadSelfAttention(nn.Module):
             dim=1
         )
         
-        combined_output = combined_output.contiguous().view(B, L, self.d_model * self.num_heads)
+        combined_output = combined_output.contiguous().view(B, -1, self.d_model * self.num_heads)
         # print(f"combined: {combined_output.shape}")
         context = self.output_layer(combined_output)        
 
@@ -263,7 +264,8 @@ class TransformerDecoderLayer(nn.Module):
         self.self_attn = MultiHeadSelfAttention(num_heads=self.n_selfattention_heads)
         
         # Multi-head Cross-attention
-        self.cross_attn = MultiHeadSelfAttention(num_heads=self.n_crossattention_heads)
+        self.cross_attn_seq = MultiHeadSelfAttention(num_heads=self.n_crossattention_heads)
+        self.cross_attn_tok = MultiHeadSelfAttention(num_heads=self.n_crossattention_heads)
         
         # Layer normalization 1
         self.norm1 = LayerNormalization()
@@ -348,17 +350,18 @@ class TransformerDecoderLayer(nn.Module):
             print(f"FF out shape: {ff_out.shape}")
         # Add the residual connection
         inp = inp + ff_out
+        inp = self.norm3(inp)
         
         # compute cross attention between encoder's outputs and decoder's prev. hidden states
         # print("MHCA 1")
-        cross_attn_out, cross_attn_W_seq = self.cross_attn(
+        cross_attn_out, cross_attn_W_seq = self.cross_attn_seq(
             q=inp, 
             k=encoder_outs[0], 
             v=encoder_outs[0], 
             mask=src_mask[0]
         )
         # print("MHCA 2")
-        _, cross_attn_W_tokens = self.cross_attn(
+        _, cross_attn_W_tokens = self.cross_attn_tok(
             q=inp, 
             k=encoder_outs[1], 
             v=encoder_outs[1], 
@@ -416,10 +419,10 @@ class TransformerDecoder(nn.Module):
         # Create positions tensor
         positions = torch.arange(0, config.MAX_LEN).unsqueeze(0).expand(B, -1).to(inp.device)
         positions = F.one_hot(positions, num_classes=config.MAX_LEN).to(torch.float32)
-        positions = self.position_emb(positions)
+        positions = self.position_emb(positions) * math.sqrt(config.D_MODEL)
         
         # Token embeddings
-        inp = self.token_emb(inp)
+        inp = self.token_emb(inp) * math.sqrt(config.D_MODEL)
 
         # Positional embeddings
         inp += positions[:, :L]
