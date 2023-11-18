@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 15 Nov, 2023
+Last Update: 18 Nov, 2023
 """
 
 from activations import Swish
@@ -38,7 +38,7 @@ class FiLMBlockV2(nn.Module):
     """
     def __init__(
         self, 
-        num_img_channels:int=512
+        num_img_channels:int=config.EMBEDDING_DIM
     ):
         super().__init__()
         
