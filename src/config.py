@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 18 Nov, 2023
+Last Update: 26 Nov, 2023
 """
 
 import albumentations as A
@@ -31,6 +31,7 @@ DATASET_PATH = "../../../dataset/robot_manipulations/"
 MODEL_PATH = "../models/"
 LOGS_PATH = "../logs/"
 LOGGING_FILE = "../logs/logs.txt"
+MODEL_LOGGING_FILE = "../logs/model_config.txt"
 
 # Vocabulary & Maps
 SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
@@ -68,7 +69,7 @@ HISTORY_AUGS = A.Compose([
 ])
 MAX_LEN = 16
 NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS = 2
-VALIDATION_PCT = .1
+VALIDATION_PCT = .15
 
 # model
 IMG_ENCODER_BACKBONES = {
@@ -86,7 +87,7 @@ IMG_ENCODER_BACKBONES = {
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
 FREEZE_CNN = True
-LANG_MODEL_NAME = 'prajjwal1/bert-tiny'
+LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
 }
@@ -96,27 +97,27 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 64
-EPOCHS = 200
-LR = 1e-3
-OPTIMIZER = "Adam" 
-NUM_WORKERS = 32
-LABEL_SMOOTHING = 0.1
-GRAD_CLIP_VAL = 2
+BATCH_SIZE = 16
+EPOCHS = 1000
+LR = 1e-4
+OPTIMIZER = "AdamW"
+NUM_WORKERS = 5
+LABEL_SMOOTHING = 0.15
+GRAD_CLIP_VAL = 2.
 WEIGHT_DECAY = 1e-6
 LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
         "mode":'min', 
         "factor":0.2, 
-        "patience":8, 
+        "patience":10, 
         "min_lr":1e-8, 
         "verbose":  False
     }
 }
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 2
+NUM_RES_BLOCKS = 4
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -127,7 +128,7 @@ NUM_CHANNELS = {
     "resnet50": 2048,
 }
 ENCODER_DROPOUT_RATE = 0.15
-EMBEDDING_DIM = 128 # 512
+EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
 TOKEN_LEARNER_DROPOUT = 0.15
@@ -138,13 +139,13 @@ INF = float("-inf") # -1e9
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
-N_DECODER_LAYERS = 4
-N_HEADS = 4
+N_DECODER_LAYERS = 1
+N_HEADS = 8
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS 
 D_FF = 1024
-DECODER_DROPOUT_RATE = 0.3
+DECODER_DROPOUT_RATE = 0.25
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

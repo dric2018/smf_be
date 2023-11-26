@@ -6,6 +6,7 @@ logs/
 dataset/
 data/
 checkpoints/
+wandb/
 models/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
@@ -21,6 +22,7 @@ src/checkpoints/
 src/__pycache__/
 src/lightning_logs/*
 src/tb_logs/*
+src/wandb/
 # src/utils
 src/utils/__pycache__/
 src/utils/.ipynb_checkpoints/
