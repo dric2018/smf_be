@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 26 Nov, 2023
+Last Update: 27 Nov, 2023
 """
 
 import config
@@ -336,8 +336,16 @@ def greedy_decoding(
     
 def decode_predictions(predicted_ids:torch.Tensor)->list:
     
-    curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids.tolist()]        
-    return " ".join([tok for tok in curr_preds if tok not in config.SPECIAL_TOKENS])
+    curr_preds = []
+    
+    for tok in predicted_ids.tolist():
+        if tok == 2:
+            # EOS token encountered
+            break
+        else:
+            curr_preds.append(config.TARGETS_REVERSE_MAPPING[tok])
+    
+    return " ".join(curr_preds)
 
 def fetch_sample_from_batch(
     batch, 
@@ -393,6 +401,20 @@ class StopTrainingException(Exception):
 
 
 ## Training utils
+class CustomWandbTable:
+    def __init__(self, columns):
+        self.columns = columns
+        self.data = {col: [] for col in columns}
+
+    def update(self, values):
+        for col, val in zip(self.columns, values):
+            self.data[col].append(val)
+
+    def log_to_wandb(self):
+        wandb.log(self.data)
+        wandb.run.log({"training_summary": self.data})
+
+        
 def training_step(model, batch, loss_fn):
 
     input_ids=batch["action_desc"]["ids"].to(config.DEVICE)
@@ -470,7 +492,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
     
     cer_ = np.inf
     wer_ = np.inf
-    
+        
     for e in range(config.EPOCHS):        
         running_loss = 0.
         num_steps = len(dm.train_dataloader())
@@ -653,9 +675,9 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             f.write(f"Actual \t\t: {label}\n") 
             f.write(f"Curr val loss \t\t: {val_loss:.5f}\n") 
             f.write(f"Best loss: \t\t: {best_val_loss:.5f}\n\n") 
-        
-        wandb.save("logs/*txt*")
+
         pbar.close()
         torch.cuda.empty_cache()
         
     return model
+

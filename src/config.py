@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 26 Nov, 2023
+Last Update: 27 Nov, 2023
 """
 
 import albumentations as A
@@ -86,7 +86,7 @@ IMG_ENCODER_BACKBONES = {
 }
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
-FREEZE_CNN = True
+FREEZE_CNN = False
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
@@ -97,10 +97,11 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 16
-EPOCHS = 1000
-LR = 1e-4
-OPTIMIZER = "AdamW"
+BATCH_SIZE = 8
+EPOCHS = 5000
+LR = 2e-4
+LR_SCHEDULE_START = 200
+OPTIMIZER = "Adam"
 NUM_WORKERS = 5
 LABEL_SMOOTHING = 0.15
 GRAD_CLIP_VAL = 2.
@@ -117,7 +118,7 @@ LR_SCHEDULER = {
 }
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 4
+NUM_RES_BLOCKS = 2
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -127,7 +128,7 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.15
+ENCODER_DROPOUT_RATE = 0.2
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
@@ -145,7 +146,7 @@ EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS 
 D_FF = 1024
-DECODER_DROPOUT_RATE = 0.25
+DECODER_DROPOUT_RATE = 0.2
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 
