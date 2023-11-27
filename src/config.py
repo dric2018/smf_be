@@ -86,7 +86,7 @@ IMG_ENCODER_BACKBONES = {
 }
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
-FREEZE_CNN = False
+FREEZE_CNN = True
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
@@ -97,16 +97,18 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 8
+BATCH_SIZE = 32
 EPOCHS = 5000
-LR = 2e-4
+LR = 3e-2
 LR_SCHEDULE_START = 200
-OPTIMIZER = "Adam"
+STEPS_PER_EPOCH = 10
+MAX_LR = 0.1
+OPTIMIZER = "AdamW"
 NUM_WORKERS = 5
 LABEL_SMOOTHING = 0.15
 GRAD_CLIP_VAL = 2.
-WEIGHT_DECAY = 1e-6
-LR_SCHEDULER = {
+WEIGHT_DECAY = 2e-6
+REDUCE_LR_SCHEDULER = {
     "type": "ReduceLROnPlateau",
     "params": {
         "mode":'min', 
@@ -116,9 +118,21 @@ LR_SCHEDULER = {
         "verbose":  False
     }
 }
+CYCLYC_LR_SCHEDULER = {
+    "type": "OneCycleLR",
+    "params": {
+        "max_lr": MAX_LR,
+        "steps_per_epoch": STEPS_PER_EPOCH,
+        "epochs":EPOCHS // STEPS_PER_EPOCH,
+        "anneal_strategy":"cos"
+    }
+}
+ # select LR scheduler
+LR_SCHEDULER  = CYCLYC_LR_SCHEDULER
+
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 2
+NUM_RES_BLOCKS = 6
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -128,7 +142,7 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.2
+ENCODER_DROPOUT_RATE = 0.25
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 

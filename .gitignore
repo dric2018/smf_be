@@ -1,6 +1,8 @@
 #./
 .ipynb_checkpoints/
 checkpoints
+*.out
+
 # SMF Repo
 logs/
 dataset/

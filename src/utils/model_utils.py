@@ -595,11 +595,12 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         out = validation_step(model=model, batch=batch, loss_fn=loss_fn)
         val_loss = out["val_loss"]
         
-        # start scheduling lr after epoch X
-        # X set to 30 to start us of
-        if e >=config.LR_SCHEDULE_START:
+        if config.LR_SCHEDULER["type"]=="ReduceLROnPlateau" and e >=config.LR_SCHEDULE_START:
+            # start scheduling lr after X epochs
             scheduler.step(val_loss)
-       
+        else:
+            scheduler.step()
+
         # plot attention weights
         plot_attention(
             out["self_attn_ws"], 

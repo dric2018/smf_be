@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 25 Nov, 2023
+Last Update: 27 Nov, 2023
 """
 import argparse
 
@@ -79,6 +79,9 @@ if __name__ == "__main__":
         )
 
         scheduler = getattr(lr_scheduler, config.LR_SCHEDULER["type"])(**config.LR_SCHEDULER["params"], optimizer=opt)
+        
+        pprint(opt)
+
         ##### init experiment
         run = wandb.init(
             dir='../',
