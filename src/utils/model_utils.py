@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 27 Nov, 2023
+Last Update: 29 Nov, 2023
 """
 
 import config
@@ -474,6 +474,7 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
         "val_loss"              : val_loss,
         "CER"                   : cer,
         "WER"                   : wer,
+        "action_desc": inp["raw_action_desc"],
         "label"                 : label,
         "pred_ids"              : pred_ids,
         "pred_tokens"           : preds,
@@ -575,7 +576,9 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
 
         labels = model.decode_predictions(
             predicted_ids=batch["motor_cmd"]["labels"]
-        )         
+        )    
+        
+        action_descs = batch["action_desc"]["raw"]
             
         # log decoded sentenses
         with open(config.LOGGING_FILE, "a") as f:            
@@ -584,12 +587,15 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             
             pred = preds[0]
             label = labels[0]
+            desc = action_descs[0]
             
             cer_ = model.cer_fn(pred, label).item()
             wer_ = model.wer_fn(pred, label).item()
+            f.write(f"Action desc \t: {desc}\n")
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n")
-            
+            f.write(f"Curr train loss \t\t: {loss_epoch:.5f}\n") 
+
         # validation
         batch = next(iter(dm.val_dataloader()))
         out = validation_step(model=model, batch=batch, loss_fn=loss_fn)
@@ -670,8 +676,10 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         with open(config.LOGGING_FILE, "a") as f:                        
             pred = out["pred_tokens"]
             label = out["label"]
+            ad = out["action_desc"]
             
-            f.write(f"[Val] \n")            
+            f.write(f"[Val] \n")     
+            f.write(f"Action desc \t: {ad}\n")
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n") 
             f.write(f"Curr val loss \t\t: {val_loss:.5f}\n") 
@@ -682,3 +690,26 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         
     return model
 
+def lrfn(
+    epoch:int, 
+    lr_start:float=config.LR_START,
+    lr_max:float = config.LR_MAX,
+    lr_min:float = config.LR_MIN,
+    num_epochs:int=config.EPOCHS,
+    lr_exp_decay:float = config.LR_EXP_DECAY
+
+):
+    """
+        Courtesy of Chris Deotte KGMON@NVIDIAc
+    """
+    lr_rampup_epochs = num_epochs // (5*3)
+    lr_sustain_epochs = num_epochs // (5*5)
+
+    
+    if epoch < lr_rampup_epochs:
+        lr = (lr_max - lr_start) / lr_rampup_epochs * epoch + lr_start
+    elif epoch < lr_rampup_epochs + lr_sustain_epochs:
+        lr = lr_max
+    else:
+        lr = (lr_max - lr_min) * lr_exp_decay**(epoch - lr_rampup_epochs - lr_sustain_epochs) + lr_min
+    return lr

@@ -2,16 +2,19 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 27 Nov, 2023
+Last Update: 29 Nov, 2023
 """
 
 import albumentations as A
+import datetime
+
 import numpy as np
 from pprint import pprint
 import random
 import torch 
 
 import vocabulary as vocab
+import utils
 
 # I/O
 ## Set seed
@@ -26,11 +29,13 @@ SEED = 1234
 #     torch.backends.cudnn.deterministic = True
 #     torch.backends.cudnn.benchmark = False
 
+current_datetime = datetime.datetime.now()
+formatted_datetime = current_datetime.strftime("%Y%m%d_%H%M%S")
 # Paths
 DATASET_PATH = "../../../dataset/robot_manipulations/"
 MODEL_PATH = "../models/"
 LOGS_PATH = "../logs/"
-LOGGING_FILE = "../logs/logs.txt"
+LOGGING_FILE = f"../logs/logs_{formatted_datetime}.txt"
 MODEL_LOGGING_FILE = "../logs/model_config.txt"
 
 # Vocabulary & Maps
@@ -97,15 +102,21 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 32
-EPOCHS = 5000
-LR = 3e-2
+BATCH_SIZE = 64
+EPOCHS = 5_00
+
+LR = 3e-3
 LR_SCHEDULE_START = 200
 STEPS_PER_EPOCH = 10
-MAX_LR = 0.1
+MAX_LR = LR
+LR_START = 1e-5
+LR_MAX = 3e-4
+LR_MIN = 1e-7
+LR_EXP_DECAY = .99
+
 OPTIMIZER = "AdamW"
 NUM_WORKERS = 5
-LABEL_SMOOTHING = 0.15
+LABEL_SMOOTHING = 0.1
 GRAD_CLIP_VAL = 2.
 WEIGHT_DECAY = 2e-6
 REDUCE_LR_SCHEDULER = {
@@ -127,12 +138,22 @@ CYCLYC_LR_SCHEDULER = {
         "anneal_strategy":"cos"
     }
 }
+
+WARMUP_LR_SCHEDULER = {
+    "type": "LambdaLR",
+    "params": {
+        "lr_lambda" : lambda epoch: utils.model_utils.lrfn(epoch)
+    }
+}
  # select LR scheduler
-LR_SCHEDULER  = CYCLYC_LR_SCHEDULER
+
+LR_SCHEDULER  = WARMUP_LR_SCHEDULER
+# update LR for warmup lr scheduling
+LR = 1. if LR_SCHEDULER["type"] == "LambdaLR" else LR
 
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 6
+NUM_RES_BLOCKS = 4
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -142,7 +163,7 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.25
+ENCODER_DROPOUT_RATE = 0.2
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 

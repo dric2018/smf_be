@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 15 Nov, 2023
+Last Update: 29 Nov, 2023
 
 # Code Description
 ======================
@@ -386,14 +386,22 @@ class RT1CRAM(pl.LightningModule):
         return decoder_inp[0].cpu().detach()
     
     def decode_predictions(self, predicted_ids:torch.Tensor)->list:
-
+        
         batch_preds = []
         B = predicted_ids.shape[0]
+        
         for b in range(B):
-            curr_preds = [config.TARGETS_REVERSE_MAPPING[tok] for tok in predicted_ids[b].tolist() if tok not in config.SPECIAL_TOKEN_IDS]
+            curr_preds = []
+            for t, tok in enumerate(predicted_ids.tolist()[b]):
+                if t>=1 and tok == 2:
+                    # EOS token encountered
+                    break
+                else:
+                    curr_preds.append(config.TARGETS_REVERSE_MAPPING[tok])
+
             batch_preds.append(" ".join(curr_preds))
 
-        return batch_preds
+        return  batch_preds
     
     
     def forward(
