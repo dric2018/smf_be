@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 10 Nov, 2023
+Last Update: 14 Dec, 2023
 
 # Code Description
 ======================
@@ -32,7 +32,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformer import FeedFowardLayer, LayerNormalization
+from transformer import LayerNorm
 
 class TokenLearnerV11(nn.Module):
     """
@@ -65,7 +65,7 @@ class TokenLearnerV11(nn.Module):
         self.dropout_rate = dropout_rate
 
         self.token_masking = nn.Sequential(
-            LayerNormalization(),
+            LayerNorm(),
             nn.Linear(in_features=config.EMBEDDING_DIM, out_features=bottleneck_dim),
             nn.GELU(),
             nn.Dropout(p=self.dropout_rate),

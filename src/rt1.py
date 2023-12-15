@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Nov, 2023
+Last Update:  15 Dec, 2023
 
 # Code Description
 ======================
@@ -29,7 +29,7 @@ from typing import Tuple, Union
 import torch
 import torch.nn as nn
 from torchmetrics.text import CharErrorRate, WordErrorRate
-from transformer import PositionalEncoder, MultiHeadSelfAttention, FeedFowardLayer, LayerNormalization, TransformerDecoderLayer, TransformerDecoder, generate_masks, generate_causal_attention_mask
+from transformer import PositionalEncoding, MultiHeadAttention, FeedForwardLayer, LayerNorm, DecoderLayer, TransformerDecoder
 
 import utils.model_utils as model_utils
 from utils.model_utils import TextEncoder, fetch_sample_from_batch, decode_predictions, plot_attention, StopTrainingException
@@ -105,7 +105,7 @@ class RT1Encoder(nn.Module):
 
         for i in range(config.NUM_HISTORY+1):
             # print(history.carousel[:, :, h, :, :].shape)
-            text_enc_h_state, tokens, spatial_attn_weights = self._encode(
+            _, tokens, spatial_attn_weights = self._encode(
                 input_ids=input_ids,
                 attn_mask=attn_mask,
                 token_type_ids=token_type_ids,
@@ -114,8 +114,11 @@ class RT1Encoder(nn.Module):
             )
 
             tokenized_inputs[:,  i] = tokens 
-            
-        return text_enc_h_state, tokenized_inputs.view(B, -1, config.D_MODEL), spatial_attn_weights
+         
+        # format vision-language tokens -> (B, num_imgs*num_learned_tokens, d_model)
+        tokenized_inputs = tokenized_inputs.view(B, -1, config.D_MODEL)
+        
+        return tokenized_inputs, spatial_attn_weights
 
     
     
@@ -196,40 +199,30 @@ class RT1Decoder(nn.Module):
         super().__init__()
         
         self.num_decoder_layers = num_decoder_layers
-        
-        # token embedding
-        self.target_embedding = nn.Embedding(
-            num_embeddings=config.TARGET_VOCAB_SIZE, 
-            embedding_dim=config.EMBEDDING_DIM, 
-            padding_idx=config.TGT_PAD_TOK_ID
-        )
                 
         self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
-        self.norm = LayerNormalization()
+        self.norm = LayerNorm()
         self.action_generator = ActionGenerator()
         
         # weights tying
-        self.target_embedding.weight = self.action_generator.proj[0].weight
+        self.transformer.emb_layer.weight = self.action_generator.proj[0].weight
  
     
     def forward(
         self, 
         inp:torch.Tensor, 
-        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
-        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
-        target_mask:torch.tensor=None,
+        encoder_out:torch.Tensor,
+        src_mask:torch.Tensor=None, 
+        attn_mask:torch.tensor=None,
         return_actions:bool=True,
         debug:bool=False
     ):
-        # embed inputs
-        inp = self.target_embedding(inp) * math.sqrt(config.D_MODEL)
                 
-        out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = self.transformer(
-            inp=inp, 
-            encoder_outs=encoder_outs, 
-            src_mask=src_mask, 
-            target_mask=target_mask, 
-            debug=debug
+        out, self_attn_ws, cross_attn_ws = self.transformer(
+            dec_in=inp, 
+            enc_out=encoder_out, 
+            attn_mask=attn_mask, 
+            src_mask=src_mask
         )
         
         out = self.norm(out)
@@ -237,16 +230,16 @@ class RT1Decoder(nn.Module):
         if return_actions:
             out = self.action_generator(out)
         
-        return out, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
+        return out, self_attn_ws, cross_attn_ws
     
     
 class RT1CRAM(pl.LightningModule):
     def __init__(
         self,
-        cnn_bacnbone:str="efficientnet_b3",
+        cnn_bacnbone:str=config.SELECTED_CNN_BACKBONE,
         num_res_blocks:int=config.NUM_RES_BLOCKS,
         num_decoder_layers:int=config.N_DECODER_LAYERS,
-        freeze_cnn_backbone:bool=True,
+        freeze_cnn_backbone:bool=config.FREEZE_CNN,
         args=None
     ):
         super().__init__()
@@ -260,7 +253,6 @@ class RT1CRAM(pl.LightningModule):
         )
         
         self.args = args
-            
         self.decoder = RT1Decoder(num_decoder_layers=num_decoder_layers)
         
         # metrics

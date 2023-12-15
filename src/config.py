@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Nov, 2023
+Last Update: 14 Dec, 2023
 """
 
 import albumentations as A
@@ -90,7 +90,7 @@ IMG_ENCODER_BACKBONES = {
     "vit_tiny": "vit_tiny_patch16_224.augreg_in21k_ft_in1k", # 5.7M
 }
 
-SELECTED_CNN_BACKBONE = "efficientnet_b3"
+SELECTED_CNN_BACKBONE = "resnet34"
 FREEZE_CNN = True
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
@@ -102,8 +102,8 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 64
-EPOCHS = 5_00
+BATCH_SIZE = 32
+EPOCHS = 100
 
 LR = 3e-3
 LR_SCHEDULE_START = 200
@@ -116,7 +116,7 @@ LR_EXP_DECAY = .99
 
 OPTIMIZER = "AdamW"
 NUM_WORKERS = 5
-LABEL_SMOOTHING = 0.1
+LABEL_SMOOTHING = 0.0
 GRAD_CLIP_VAL = 2.
 WEIGHT_DECAY = 2e-6
 REDUCE_LR_SCHEDULER = {
@@ -167,7 +167,7 @@ ENCODER_DROPOUT_RATE = 0.2
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = 0.15
+TOKEN_LEARNER_DROPOUT = 0.1
 TOKEN_LEARNER_DIM = 256
 
 ### Decoder

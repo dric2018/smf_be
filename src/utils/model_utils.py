@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Nov, 2023
+Last Update: 15 Dec, 2023
 """
 
 import config
@@ -22,11 +22,14 @@ import torch.nn as nn
 import torchvision.models as models
 
 from transformers import AutoTokenizer, AutoModel, AutoConfig
-
-from transformer import generate_causal_attention_mask
+from transformer import make_attn_mask
 
 import wandb
 
+def get_seq_len(x:torch.Tensor):
+    non_padding_mask = (outp[0] != config.TGT_PAD_TOK_ID)
+    seq_len = non_padding_mask.sum().item()
+    return seq_len
 
 class TextEncoder(nn.Module):
     def __init__(
@@ -309,9 +312,7 @@ def greedy_decoding(
     # decoding procedure
     for t in range(max_len):
         
-        decoder_mask = generate_causal_attention_mask(
-            dim=decoder_inp.shape[1]
-        ).type_as(attn_mask)
+        decoder_mask = make_attn_mask()
         
         # generate predictions
         with torch.no_grad():

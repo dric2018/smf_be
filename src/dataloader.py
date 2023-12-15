@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 16 Nov, 2023
+Last Update: 14 Dec, 2023
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -29,7 +29,6 @@ import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.utils.rnn import pad_sequence
 from transformers import AutoTokenizer
-from transformer import generate_causal_attention_mask
 
 logging.basicConfig(level="INFO")
 
@@ -58,16 +57,10 @@ class TargetEncoding:
         label_token_ids               = [config.TARGETS_MAPPING[t] for t in labels]
         
         # compute padding length
-        padding_len             = config.MAX_LEN - len_dec_inputs
+        padding_len             = config.MAX_OUT_SEQ_LEN - len_dec_inputs
         self.dec_inp_token_ids  = dec_inp_token_ids + ([self.pad_id] * padding_len)
         self.label_token_ids    = label_token_ids + ([self.pad_id] * padding_len)
         
-        # create causal attention mask
-        self.attention_mask = generate_causal_attention_mask(dim=len_dec_inputs+padding_len)
-        self.attention_mask_tokens = generate_causal_attention_mask(
-            dim=len_dec_inputs+padding_len, 
-            for_learned_tokens=True
-        )
         
 class BEDataset(Dataset):
     def __init__(
@@ -195,13 +188,7 @@ class BEDataset(Dataset):
         enc_cmd = TargetEncoding(inp=data_point.motor_cmd)
         
         # prepare encoder inputs
-        encoder_inp = torch.as_tensor(enc_ad["input_ids"]).long()
-        # generate additional ids for learned tokens mask
-        additional_ids = torch.cat(
-            [torch.zeros_like(encoder_inp) for _ in range(config.NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS)], 
-            dim=-1
-        )
-        learned_tokens_ids = torch.cat([encoder_inp, additional_ids], dim=-1)        
+        encoder_inp = torch.as_tensor(enc_ad["input_ids"]).long()     
         
         sample = {
             "sample_id": data_point.sample_ID,
@@ -212,8 +199,6 @@ class BEDataset(Dataset):
                 "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
                 "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
             },
-                "source_mask_tokens"      : (learned_tokens_ids != config.SRC_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
-                "source_mask"      : (encoder_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0),
             
         }
 
@@ -228,7 +213,6 @@ class BEDataset(Dataset):
                     "decoder_inp_ids"       : dec_inp,
                     "labels":  labels, 
                 },
-                "target_mask"      : (dec_inp != config.TGT_PAD_TOK_ID).unsqueeze(0).unsqueeze(0) & enc_cmd.attention_mask,
             })
             
             if return_goal:
