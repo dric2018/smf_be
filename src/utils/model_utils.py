@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 15 Dec, 2023
+Last Update: 16 Dec, 2023
 """
 
 import config
@@ -295,12 +295,8 @@ def greedy_decoding(
     attn_mask=batch_inp["mask"].to(config.DEVICE)
     token_type_ids=batch_inp["token_type_ids"].to(config.DEVICE)
     imgs=batch_inp["in_state"].to(config.DEVICE)
-    src_mask=(
-        batch_inp["source_mask"].to(config.DEVICE), 
-        batch_inp["source_mask_tokens"].to(config.DEVICE)
-    )
 
-    text_enc_last_h, learned_tokens = model._encode(
+    _, learned_tokens = model._encode(
         input_ids=input_ids, 
         attn_mask=attn_mask, 
         token_type_ids=token_type_ids, 
@@ -309,30 +305,25 @@ def greedy_decoding(
     
     decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(sos_token)
 
-    # decoding procedure
-    for t in range(max_len):
-        
-        decoder_mask = make_attn_mask()
-        
-        # generate predictions
+    for t in range(config.MAX_OUT_SEQ_LEN):
+        mask = make_attn_mask(dim=decoder_inp.shape[1])
+
         with torch.no_grad():
-            logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = model._decode(
+            logits, self_attn_ws, cross_attn_ws = rt1._decode(
             decoder_inp=decoder_inp, 
-            encoder_outs=(text_enc_last_h, learned_tokens), 
-            src_mask=src_mask, 
-            target_mask=decoder_mask,
-            debug=debug,
+            encoder_out=learned_tokens,
+            attn_mask=mask,
             return_actions=False
         )
 
         # perform greedy decoding
-        probs = model.decoder.action_generator(logits[:, -1])
-            
+        probs = rt1.decoder.action_generator(logits[:, -1])
+
         _, next_tok = torch.max(probs, dim=-1)
         # update decoder input
         decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
             
-    return decoder_inp[:, 1:].cpu().detach(), logits, self_attn_ws.cpu().detach(), cross_attn_ws_seq.cpu().detach(), cross_attn_ws_tokens.cpu().detach()
+    return decoder_inp[:, 1:].cpu().detach(), logits, self_attn_ws.cpu().detach(), cross_attn_ws.cpu().detach()
 
     
 def decode_predictions(predicted_ids:torch.Tensor)->list:
@@ -381,25 +372,6 @@ def has_nan(x:torch.Tensor):
 class StopTrainingException(Exception):
     pass
 
-# class TelegramCallback(Callback):
-#     """
-#         Courtesy of Robert Bracco (Made-Up Masters@medium.com)
-
-#         source: https://medium.com/@robertbracco1/how-to-write-a-telegram-bot-to-send-messages-with-python-part-2-1d9bf6ddc652
-#     """
-    
-#     def on_epoch_end(self, trainer, pl_module):
-#         include = ["epoch", "train_loss", "val_loss"]
-#         d = {k:round(float(v), 3) for k,v in         
-#              trainer.callback_metrics.items() if k in include}
-        
-#         messages = [f"{k} : {v}" for k,v in d.items()]
-        
-#         try:
-#             telegram_send.send(messages=[messages])
-#         except Exception as e: 
-#             print("Unable to send:", e)
-
 
 ## Training utils
 class CustomWandbTable:
@@ -423,34 +395,31 @@ def training_step(model, batch, loss_fn):
     token_type_ids=batch["action_desc"]["token_type_ids"].to(config.DEVICE)
     imgs=batch["in_state"].to(config.DEVICE)
     decoder_inp=batch["motor_cmd"]["decoder_inp_ids"].to(config.DEVICE)
-    src_mask=(batch["source_mask"].to(config.DEVICE), batch["source_mask_tokens"].to(config.DEVICE))
-    target_mask=batch["target_mask"].to(config.DEVICE)
     
     # forward
-    logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = model(
+    logits, self_attn_ws, cross_attn_ws = model(
         input_ids=input_ids, 
         attn_mask=attn_mask, 
         token_type_ids=token_type_ids, 
         imgs=imgs,
-        decoder_inp=decoder_inp, 
-        src_mask=src_mask, 
-        target_mask=target_mask 
+        decoder_inp=decoder_inp
     )
 
     # loss computation
     labels = batch["motor_cmd"]["labels"].to(config.DEVICE)
     loss = loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1))
         
-    return loss, logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens
+    return loss, logits, self_attn_ws, cross_attn_ws
 
 def validation_step(batch, model, loss_fn, debug:bool=False):
+    
     inp = fetch_sample_from_batch(
         batch, 
         batch_size=batch["in_state"].shape[0],
         random=True
     )
     
-    pred_ids, logits, self_attn_ws, cross_attn_ws_seq, cross_attn_ws_tokens = greedy_decoding(
+    pred_ids, logits, self_attn_ws, cross_attn_ws = greedy_decoding(
         model=model, 
         batch_inp=inp, 
         debug=debug
@@ -475,13 +444,11 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
         "val_loss"              : val_loss,
         "CER"                   : cer,
         "WER"                   : wer,
-        "action_desc": inp["raw_action_desc"],
         "label"                 : label,
         "pred_ids"              : pred_ids,
         "pred_tokens"           : preds,
         "self_attn_ws"          : self_attn_ws, 
-        "cross_attn_ws_seq"     : cross_attn_ws_seq, 
-        "cross_attn_ws_tokens"  : cross_attn_ws_tokens
+        "cross_attn_ws"         : cross_attn_ws
     }
     
     return output
@@ -494,7 +461,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
     
     cer_ = np.inf
     wer_ = np.inf
-        
+    
     for e in range(config.EPOCHS):        
         running_loss = 0.
         num_steps = len(dm.train_dataloader())
@@ -519,7 +486,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             opt.zero_grad()
 
             # training step
-            loss, logits, self_attn_ws, cross_attn_ws_seq, _ = training_step(
+            loss, logits, self_attn_ws, cross_attn_ws = training_step(
                 model=model, 
                 batch=batch, 
                 loss_fn=loss_fn
@@ -536,7 +503,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             )
 
             plot_attention(
-                cross_attn_ws_seq,
+                cross_attn_ws,
                 kind="cross", 
                 pre_fix="train_crossattn", 
                 show=False, 
@@ -577,9 +544,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
 
         labels = model.decode_predictions(
             predicted_ids=batch["motor_cmd"]["labels"]
-        )    
-        
-        action_descs = batch["action_desc"]["raw"]
+        )         
             
         # log decoded sentenses
         with open(config.LOGGING_FILE, "a") as f:            
@@ -588,26 +553,21 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             
             pred = preds[0]
             label = labels[0]
-            desc = action_descs[0]
             
             cer_ = model.cer_fn(pred, label).item()
             wer_ = model.wer_fn(pred, label).item()
-            f.write(f"Action desc \t: {desc}\n")
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n")
-            f.write(f"Curr train loss \t\t: {loss_epoch:.5f}\n") 
-
+                
         # validation
-        batch = next(iter(dm.val_dataloader()))
-        out = validation_step(model=model, batch=batch, loss_fn=loss_fn)
+        out = validation_step(model=rt1, batch=batch, loss_fn=loss_fn)
         val_loss = out["val_loss"]
         
-        if config.LR_SCHEDULER["type"]=="ReduceLROnPlateau" and e >=config.LR_SCHEDULE_START:
-            # start scheduling lr after X epochs
+        # start scheduling lr after epoch X
+        # X set to 30 to start us of
+        if e >=30:
             scheduler.step(val_loss)
-        else:
-            scheduler.step()
-
+       
         # plot attention weights
         plot_attention(
             out["self_attn_ws"], 
@@ -619,7 +579,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         )
 
         plot_attention(
-            out["cross_attn_ws_seq"],
+            out["cross_attn_ws"],
             kind="cross", 
             pre_fix="val_crossattn", 
             show=False, 
@@ -627,15 +587,6 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             epoch=e,
             wandb_logging=True
         )   
-
-        # plot_attention(
-        #     out["cross_attn_ws_tokens"], 
-        #     pre_fix="val_crossattn_tokens", 
-        #     show=False, 
-        #     folder="val",
-        #     epoch=e,
-        #     wandb_logging=True
-        # )   
         
         # update best score
         if val_loss < best_val_loss:
@@ -656,7 +607,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             train_loss="{:.04f}".format(loss_epoch),
             # CER="{:.04f}".format(cer_),
             # WER="{:.04f}".format(wer_),
-            val_Loss="{:.04f}".format(best_val_loss),
+            val_Loss="{:.04f}".format(val_loss),
             val_CER="{:.04f}".format(out["CER"]),
             val_WER="{:.04f}".format(out["WER"]),
             lr_epoch="{:.1e}".format(final_lr_epoch),
@@ -677,15 +628,13 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         with open(config.LOGGING_FILE, "a") as f:                        
             pred = out["pred_tokens"]
             label = out["label"]
-            ad = out["action_desc"]
             
-            f.write(f"[Val] \n")     
-            f.write(f"Action desc \t: {ad}\n")
+            f.write(f"[Val] \n")            
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n") 
             f.write(f"Curr val loss \t\t: {val_loss:.5f}\n") 
             f.write(f"Best loss: \t\t: {best_val_loss:.5f}\n\n") 
-
+            
         pbar.close()
         torch.cuda.empty_cache()
         

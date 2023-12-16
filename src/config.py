@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 14 Dec, 2023
+Last Update: 15 Dec, 2023
 """
 
 import albumentations as A
@@ -90,7 +90,7 @@ IMG_ENCODER_BACKBONES = {
     "vit_tiny": "vit_tiny_patch16_224.augreg_in21k_ft_in1k", # 5.7M
 }
 
-SELECTED_CNN_BACKBONE = "resnet34"
+SELECTED_CNN_BACKBONE = "efficientnet_b3"
 FREEZE_CNN = True
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
@@ -115,7 +115,7 @@ LR_MIN = 1e-7
 LR_EXP_DECAY = .99
 
 OPTIMIZER = "AdamW"
-NUM_WORKERS = 5
+NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.0
 GRAD_CLIP_VAL = 2.
 WEIGHT_DECAY = 2e-6

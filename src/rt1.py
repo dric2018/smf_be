@@ -105,7 +105,7 @@ class RT1Encoder(nn.Module):
 
         for i in range(config.NUM_HISTORY+1):
             # print(history.carousel[:, :, h, :, :].shape)
-            _, tokens, spatial_attn_weights = self._encode(
+            text_enc_last_h, tokens, spatial_attn_weights = self._encode(
                 input_ids=input_ids,
                 attn_mask=attn_mask,
                 token_type_ids=token_type_ids,
@@ -118,7 +118,7 @@ class RT1Encoder(nn.Module):
         # format vision-language tokens -> (B, num_imgs*num_learned_tokens, d_model)
         tokenized_inputs = tokenized_inputs.view(B, -1, config.D_MODEL)
         
-        return tokenized_inputs, spatial_attn_weights
+        return text_enc_last_h, tokenized_inputs, spatial_attn_weights
 
     
     
@@ -305,18 +305,17 @@ class RT1CRAM(pl.LightningModule):
     def _decode(
         self, 
         decoder_inp:torch.Tensor, 
-        encoder_outs:Tuple[torch.Tensor, torch.Tensor],
-        src_mask:Tuple[torch.Tensor, torch.Tensor]=(None, None), 
-        target_mask:torch.tensor=None,
+        encoder_out:torch.Tensor,
+        src_mask:torch.Tensor=None, 
+        attn_mask:torch.tensor=None,
         debug:bool=False,
         return_actions:bool=True
     ):        
         return self.decoder(
             inp=decoder_inp, 
-            encoder_outs=encoder_outs, 
+            encoder_out=encoder_out, 
             src_mask=src_mask, 
-            target_mask=target_mask,
-            debug=debug,
+            attn_mask=attn_mask,
             return_actions=return_actions
         )
     
@@ -334,10 +333,6 @@ class RT1CRAM(pl.LightningModule):
         attn_mask=batch["mask"].to(config.DEVICE)
         token_type_ids=batch["token_type_ids"].to(config.DEVICE)
         imgs=batch["in_state"].to(config.DEVICE)
-        src_mask=(
-            batch["source_mask"].to(config.DEVICE), 
-            batch["source_mask_tokens"].to(config.DEVICE)
-        )
         
         assert input_ids.shape[0] == 1, "can only run decoding strategy for a single instance."
 
@@ -403,8 +398,8 @@ class RT1CRAM(pl.LightningModule):
         token_type_ids:torch.tensor, 
         imgs:torch.tensor,
         decoder_inp:torch.tensor,
-        src_mask:Tuple[torch.Tensor, torch.Tensor], 
-        target_mask:torch.tensor
+        src_mask:torch.Tensor=None, 
+        target_mask:torch.tensor=None
     ):
         
         text_enc_last_h, learned_tokens = self._encode(
@@ -416,9 +411,9 @@ class RT1CRAM(pl.LightningModule):
         
         return self.decoder(
             inp=decoder_inp, 
-            encoder_outs=(text_enc_last_h, learned_tokens), 
+            encoder_out=learned_tokens, 
             src_mask=src_mask, 
-            target_mask=target_mask 
+            attn_mask=target_mask 
         )
     
     def configure_optimizers(self):
@@ -449,9 +444,6 @@ class RT1CRAM(pl.LightningModule):
         token_type_ids=batch["action_desc"]["token_type_ids"]
         imgs=batch["in_state"]
         decoder_inp=batch["motor_cmd"]["decoder_inp_ids"] 
-        src_mask=batch["source_mask"] 
-        src_mask_tokens=batch["source_mask_tokens"] 
-        target_mask=batch["target_mask"] 
         
         # forward pass
         return self(

@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 14 Dec, 2023
+Last Update: 15 Dec, 2023
 
 # Code Description
 ======================
@@ -30,9 +30,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def make_attn_mask():
+def make_attn_mask(dim:int=config.MAX_OUT_SEQ_LEN):
     attn_mask = torch.ones(
-        (config.MAX_OUT_SEQ_LEN, config.MAX_OUT_SEQ_LEN), 
+        (dim, dim), 
         dtype = torch.bool, 
         device = config.DEVICE
     ).triu(1)
@@ -51,7 +51,7 @@ class EmbeddingLayer(nn.Module):
 
         super().__init__()
 
-        self.tok_emb    = nn.Embedding(vocab_size, d_model, padding_idx=config.TGT_PAD_TOK_ID)
+        self.tok_emb    = nn.Embedding(num_embeddings=vocab_size, embedding_dim=d_model, padding_idx=config.TGT_PAD_TOK_ID)
         self.pos_emb    = PositionalEncoding(d_model, max_len, device)
         self.drop_out   = nn.Dropout(p=drop_prob)
 
@@ -69,7 +69,7 @@ class LayerNorm(nn.Module):
         d_model:int=config.D_MODEL, 
         eps=1e-12
     ):
-        super(LayerNorm, self).__init__()
+        super().__init__()
 
         self.gamma  = nn.Parameter(torch.ones(d_model))
         self.beta   = nn.Parameter(torch.zeros(d_model))
@@ -105,7 +105,7 @@ class ScaleDotProductAttention(nn.Module):
         # compute similarity
         k_t = k.transpose(2, 3)  # transpose
         score = (q @ k_t) / math.sqrt(d_tensor)  # scaled dot product
-
+                
         # apply attention mask
         if mask is not None:
             score = score.masked_fill(mask == 0, -10000)
@@ -114,9 +114,9 @@ class ScaleDotProductAttention(nn.Module):
         attn_w = self.softmax(score)
 
         # score Value
-        v = attn_w @ v
+        context = attn_w @ v
 
-        return v, attn_w
+        return context, attn_w
     
 
 class MultiHeadAttention(nn.Module):
@@ -146,7 +146,8 @@ class MultiHeadAttention(nn.Module):
         out, attention_w = self.attention(q, k, v, mask=mask)
 
         # compute context 
-        out = out.transpose(1, 2).contiguous().view(batch_size, length, self.d_model)
+        # out = out.transpose(1, 2).contiguous().view(batch_size, length, self.d_model)
+        out = out.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
         
         ## --> project
         out = self.w_concat(out)
@@ -325,7 +326,7 @@ class TransformerDecoder(nn.Module):
         out = dec_in
         if attn_mask is None:
             attn_mask = make_attn_mask()
-
+                    
         for layer in self.layers:
             out, self_attn_w, cross_attn_w = layer(out, enc_out, attn_mask, src_mask)
             # store attention weights
