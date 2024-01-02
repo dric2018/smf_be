@@ -2,11 +2,11 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update:  15 Dec, 2023
+Last Update:  16 Dec, 2023
 
 # Code Description
 ======================
-A re-implementation of the Robotics Transformer model (RT-1)
+Robotics Translator (RoTra): A re-implementation of the Robotics Transformer model (RT-1)
 """
 
 import config
@@ -35,7 +35,7 @@ import utils.model_utils as model_utils
 from utils.model_utils import TextEncoder, fetch_sample_from_batch, decode_predictions, plot_attention, StopTrainingException
 import utils.data_utils as data_utils
 
-class RT1Encoder(nn.Module):
+class RTEncoder(nn.Module):
     def __init__(
         self,
         cnn_bacnbone:str="efficientnet_b3",
@@ -191,13 +191,16 @@ class ActionGenerator(nn.Module):
         return out
     
     
-class RT1Decoder(nn.Module):
+
+class RTDecoder(nn.Module):
     def __init__(
                  self, 
-                 num_decoder_layers:int=config.N_DECODER_LAYERS
+                 num_decoder_layers:int=config.N_DECODER_LAYERS,
+                 decoder_type:str="transformer"
         ):
         super().__init__()
         
+        self.decoder_type = decoder_type
         self.num_decoder_layers = num_decoder_layers
                 
         self.transformer = TransformerDecoder(num_layers=num_decoder_layers)
@@ -233,7 +236,7 @@ class RT1Decoder(nn.Module):
         return out, self_attn_ws, cross_attn_ws
     
     
-class RT1CRAM(pl.LightningModule):
+class RTCRAM(pl.LightningModule):
     def __init__(
         self,
         cnn_bacnbone:str=config.SELECTED_CNN_BACKBONE,
@@ -246,14 +249,14 @@ class RT1CRAM(pl.LightningModule):
         
         assert config.EMBEDDING_DIM == config.D_MODEL, f"Make sure the embnedding dimension is equal to the dimension in the transformer model({config.D_MODEL})"
         
-        self.encoder = RT1Encoder(
+        self.encoder = RTEncoder(
             cnn_bacnbone=cnn_bacnbone, 
             num_res_blocks=num_res_blocks, 
             freeze_cnn_backbone=freeze_cnn_backbone
         )
         
         self.args = args
-        self.decoder = RT1Decoder(num_decoder_layers=num_decoder_layers)
+        self.decoder = RTDecoder(num_decoder_layers=num_decoder_layers)
         
         # metrics
         self.loss_fn = nn.CrossEntropyLoss(
@@ -319,58 +322,56 @@ class RT1CRAM(pl.LightningModule):
             return_actions=return_actions
         )
     
-    def _greedy_decode(
+    def _greedy_decoding(
         self,
-        batch:dict,
-        max_len:int=config.MAX_OUT_SEQ_LEN
+        batch_inp:dict, 
+        max_len:int=config.MAX_OUT_SEQ_LEN, 
+        debug:bool=False
     ):
+        if self.device.type == "cpu":
+            self.to(config.DEVICE)
         self.eval()
 
         sos_token = config.TARGETS_MAPPING["[SOS]"]
         eos_token = config.TARGETS_MAPPING["[EOS]"]
-        
-        input_ids=batch["ids"].to(config.DEVICE)
-        attn_mask=batch["mask"].to(config.DEVICE)
-        token_type_ids=batch["token_type_ids"].to(config.DEVICE)
-        imgs=batch["in_state"].to(config.DEVICE)
-        
-        assert input_ids.shape[0] == 1, "can only run decoding strategy for a single instance."
 
-        text_enc_last_h, learned_tokens = self._encode(
+        input_ids=batch_inp["ids"].to(config.DEVICE)
+        attn_mask=batch_inp["mask"].to(config.DEVICE)
+        token_type_ids=batch_inp["token_type_ids"].to(config.DEVICE)
+        imgs=batch_inp["in_state"].to(config.DEVICE)
+
+        _, learned_tokens = self._encode(
             input_ids=input_ids, 
             attn_mask=attn_mask, 
             token_type_ids=token_type_ids, 
             imgs=imgs    
         )
 
-        decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(1)
+        decoder_inp = torch.empty(1, 1, dtype=torch.long, device=input_ids.device).fill_(sos_token)
 
-        # decoding procedure
-        for t in range(1, max_len):
-            # # stop decoding if max= len reached
-            # create causal mask for decoding
-            decoder_mask = generate_causal_attention_mask(
-                dim=decoder_inp.shape[1]
-            ).type_as(attn_mask)
+        for t in range(config.MAX_OUT_SEQ_LEN):
+            mask = make_attn_mask(dim=decoder_inp.shape[1])
 
-            # print(decoder_mask[0, t-1].float())
-
-            # generate predictions
-            logits, _, _, _ = self._decode(
+            with torch.no_grad():
+                logits, self_attn_ws, cross_attn_ws = self._decode(
                 decoder_inp=decoder_inp, 
-                encoder_outs=(text_enc_last_h, learned_tokens), 
-                src_mask=src_mask, 
-                target_mask=decoder_mask
+                encoder_out=learned_tokens,
+                attn_mask=mask,
+                return_actions=False
             )
 
-            # apply softmax
-            probs = nn.functional.softmax(logits, dim=-1)
             # perform greedy decoding
-            next_tok = torch.argmax(probs[:, -1, :], dim=-1)
+            probs = self.decoder.action_generator(logits[:, -1])
+
+            _, next_tok = torch.max(probs, dim=-1)
+
+            if t > 1 and next_tok == eos_token:
+                break
+
             # update decoder input
             decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
 
-        return decoder_inp[0].cpu().detach()
+        return decoder_inp[:, 1:].cpu().detach(), logits, self_attn_ws.cpu().detach(), cross_attn_ws.cpu().detach()
     
     def decode_predictions(self, predicted_ids:torch.Tensor)->list:
         

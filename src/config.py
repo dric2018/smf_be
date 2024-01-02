@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 15 Dec, 2023
+Last Update: 17 Dec, 2023
 """
 
 import albumentations as A
@@ -17,18 +17,7 @@ import vocabulary as vocab
 import utils
 
 # I/O
-## Set seed
-SEED = 1234
-# random.seed(SEED)
-# np.random.seed(SEED)
-# torch.manual_seed(SEED)
-
-# if torch.cuda.is_available(): 
-#     torch.cuda.manual_seed(SEED)
-#     torch.cuda.manual_seed_all(SEED)
-#     torch.backends.cudnn.deterministic = True
-#     torch.backends.cudnn.benchmark = False
-
+SEED = 2023
 current_datetime = datetime.datetime.now()
 formatted_datetime = current_datetime.strftime("%Y%m%d_%H%M%S")
 # Paths
@@ -39,8 +28,8 @@ LOGGING_FILE = f"../logs/logs_{formatted_datetime}.txt"
 MODEL_LOGGING_FILE = "../logs/model_config.txt"
 
 # Vocabulary & Maps
-SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
-SPECIAL_TOKEN_IDS = [0, 1, 2]
+SPECIAL_TOKENS = ["[EOS]", "[SOS]"]
+SPECIAL_TOKEN_IDS = [0, 1]
 TARGETS         = SPECIAL_TOKENS + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
@@ -48,7 +37,7 @@ TARGET_VOCAB_SIZE = len(TARGETS)
 
 # Special tokens
 SRC_PAD_TOK_ID = 0
-TGT_PAD_TOK_ID = TARGETS_MAPPING["[PAD]"]
+TGT_PAD_TOK_ID = TARGETS_MAPPING["[EOS]"]
 
 # Inputs & Tokenizer
 # Constants for normalization
@@ -92,18 +81,20 @@ IMG_ENCODER_BACKBONES = {
 
 SELECTED_CNN_BACKBONE = "efficientnet_b3"
 FREEZE_CNN = True
+DATA_SUBSET = False
 LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
 }
+WANDB_LOGGING  = False
 
 # training
 RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-BATCH_SIZE = 32
-EPOCHS = 100
+BATCH_SIZE = 128
+EPOCHS = 80
 
 LR = 3e-3
 LR_SCHEDULE_START = 200
@@ -114,7 +105,7 @@ LR_MAX = 3e-4
 LR_MIN = 1e-7
 LR_EXP_DECAY = .99
 
-OPTIMIZER = "AdamW"
+OPTIMIZER = "Adam"
 NUM_WORKERS = 4
 LABEL_SMOOTHING = 0.0
 GRAD_CLIP_VAL = 2.
@@ -153,7 +144,7 @@ LR = 1. if LR_SCHEDULER["type"] == "LambdaLR" else LR
 
 ## Robotics Transformer
 ### Encoder
-NUM_RES_BLOCKS = 4
+NUM_RES_BLOCKS = 6
 NUM_CHANNELS = {
     "resnet18": 512,
     "resnet34": 512,
@@ -167,7 +158,7 @@ ENCODER_DROPOUT_RATE = 0.2
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = 0.1
+TOKEN_LEARNER_DROPOUT = 0.15
 TOKEN_LEARNER_DIM = 256
 
 ### Decoder
@@ -175,13 +166,13 @@ INF = float("-inf") # -1e9
 IMG_TOKEN_SIZE = 7
 NUM_LEARNED_TOKENS = 8
 NUM_TOKENIZED_INPUTS = (1+NUM_HISTORY)*NUM_LEARNED_TOKENS
-N_DECODER_LAYERS = 1
+N_DECODER_LAYERS = 2
 N_HEADS = 8
 EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS 
 D_FF = 1024
-DECODER_DROPOUT_RATE = 0.2
+DECODER_DROPOUT_RATE = 0.1
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

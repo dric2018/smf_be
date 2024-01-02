@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 14 Dec, 2023
+Last Update: 2 Jan, 2024
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -37,7 +37,7 @@ class TargetEncoding:
         self.ids = None
         self.tokens = None
         self.attention_mask = None
-        self.pad_id = config.TARGETS.index("[PAD]")
+        self.pad_id = config.TARGETS.index("[EOS]")
 
         if inp is not None:
             self._encode(inp)
@@ -234,7 +234,11 @@ class BEDataModule(pl.LightningDataModule):
             Defines all the operations to perform while building the datasets
         """
         # shuffle dataframe
-        self.train_df = self.train_df.sample(frac=1.).reset_index(drop=True)
+        if config.DATA_SUBSET:
+            # prepare 30% of the dataset for training
+            self.train_df = self.train_df.sample(frac=0.3).reset_index(drop=True)
+        else:
+            self.train_df = self.train_df.sample(frac=1.).reset_index(drop=True)
         
         # train/val split
         random_indices = np.random.rand(len(self.train_df)) < (1-config.VALIDATION_PCT)
@@ -348,29 +352,29 @@ if __name__ == "__main__":
     dm.setup()
 
     # test data loading I/O
-    print("="*100)
-    logging.info("\n>> train data loader")
-    print(f"# train batches\t: {len(dm.train_dataloader())}")
-    for data in dm.train_dataloader():
-        # pprint(data)
-        sample_id, in_state, ad, cmd = data["sample_id"], data["in_state"], data["action_desc"], data["motor_cmd"]
-        print("In \t\t\t: ", in_state.shape)
-        print("Action desc \t\t: ", ad["ids"].shape)
-        print("Action desc (len) \t: ", ad["length"].shape)
-        print("CMD \t\t\t: ", cmd["ids"].shape)
-        print("CMD(len) \t\t: ", cmd["length"].shape)
-        break
+#     print("="*100)
+#     logging.info("\n>> train data loader")
+#     print(f"# train batches\t: {len(dm.train_dataloader())}")
+#     for data in dm.train_dataloader():
+#         # pprint(data)
+#         sample_id, in_state, ad, cmd = data["sample_id"], data["in_state"], data["action_desc"], data["motor_cmd"]
+#         print("In \t\t\t: ", in_state.shape)
+#         print("Action desc \t\t: ", ad["ids"].shape)
+#         print("CMD \t\t\t: ", cmd["ids"].shape)
+#         print("CMD(len) \t\t: ", cmd["length"].shape)
+#         break
 
-    logging.info("\n\n>> val data loader")
-    print(f"# validation batches\t: {len(dm.val_dataloader())}")
-    for data in dm.val_dataloader():
-        # pprint(data)
-        sample_id, in_state, ad, cmd = data["sample_id"], data["in_state"], data["action_desc"], data["motor_cmd"]
-        print("In \t\t\t: ", in_state.shape)
-        print("Action desc \t\t: ", ad["ids"].shape)
-        print("Action desc (len) \t: ", ad["length"].shape)
-        print("CMD \t\t\t: ", cmd["ids"].shape)
-        print("CMD(len) \t\t: ", cmd["length"].shape)
-        break
+#     logging.info("\n\n>> val data loader")
+#     print(f"# validation batches\t: {len(dm.val_dataloader())}")
+#     for data in dm.val_dataloader():
+#         # pprint(data)
+#         sample_id, in_state, ad, cmd = data["sample_id"], data["in_state"], data["action_desc"], data["motor_cmd"]
+#         print("In \t\t\t: ", in_state.shape)
+#         print("Action desc \t\t: ", ad["ids"].shape)
+#         print("CMD \t\t\t: ", cmd["ids"].shape)
+#         break
 
-    print("="*100)
+#     print("="*100)
+    
+    b = next(iter(dm.val_dataloader()))
+    print(b.keys())

@@ -2,12 +2,14 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 16 Dec, 2023
+Last Update: 2 Jan, 2024
 """
 
 import config
 
 import lightning.pytorch as pl
+import Levenshtein
+
 
 from matplotlib import pyplot
 
@@ -15,8 +17,10 @@ import numpy as np
 
 import os
 
-from tqdm import tqdm
 import timm
+
+from tqdm.notebook imoort tqdm 
+
 import torch
 import torch.nn as nn
 import torchvision.models as models
@@ -182,7 +186,7 @@ def plot_attention(
     show:bool=True,
     epoch:int=0,
     folder:str="train",
-    wandb_logging:bool=False
+    wandb_logging:bool=config.WANDB_LOGGING
 ):
     
     num_layers = 1
@@ -251,8 +255,8 @@ def plot_attention(
                 wandb.log({f"{pre_fix}_epoch_{epoch}": wandb.Image(fig)})    
                 pyplot.close()
             else:
-                fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
-                fig.savefig(f"{fn}.png")                 
+                # fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+                # fig.savefig(f"{fn}.png")                 
                 pyplot.close()
                         
     else:
@@ -272,8 +276,8 @@ def plot_attention(
                 wandb.log({f"{pre_fix}_epoch_{epoch}": wandb.Image(fig)})    
                 pyplot.close()
             else:
-                fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
-                fig.savefig(f"{fn}.png")                 
+                # fn = os.path.join(config.LOGS_PATH, folder, f"{pre_fix}_epoch_{epoch}")
+                # fig.savefig(f"{fn}.png")                 
             
                 pyplot.close()
 
@@ -309,7 +313,7 @@ def greedy_decoding(
         mask = make_attn_mask(dim=decoder_inp.shape[1])
 
         with torch.no_grad():
-            logits, self_attn_ws, cross_attn_ws = rt1._decode(
+            logits, self_attn_ws, cross_attn_ws = model._decode(
             decoder_inp=decoder_inp, 
             encoder_out=learned_tokens,
             attn_mask=mask,
@@ -317,9 +321,12 @@ def greedy_decoding(
         )
 
         # perform greedy decoding
-        probs = rt1.decoder.action_generator(logits[:, -1])
+        probs = model.decoder.action_generator(logits[:, -1])
 
         _, next_tok = torch.max(probs, dim=-1)
+        
+        if t>=1 and next_tok == eos_token:
+            break
         # update decoder input
         decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
             
@@ -411,6 +418,7 @@ def training_step(model, batch, loss_fn):
         
     return loss, logits, self_attn_ws, cross_attn_ws
 
+
 def validation_step(batch, model, loss_fn, debug:bool=False):
     
     inp = fetch_sample_from_batch(
@@ -424,40 +432,53 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
         batch_inp=inp, 
         debug=debug
     )
+    # print("NaN in logits?: ", has_nan(logits))
     
     labels = inp["labels"].to(config.DEVICE)
     
     preds = model.decode_predictions(
             predicted_ids=pred_ids
-    )[0]
+    )
+    
+    # print(pred_ids)
 
     label = model.decode_predictions(
         predicted_ids=labels
-    )[0]  
+    )
+    
+    lev_dist = calc_edit_distance(preds, labels, batch=True)
     
     # compute metrics
+    # print(logits.shape, labels.shape)
     val_loss = loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1)).item()  # loss
-    cer = model.cer_fn(preds, label).item() # Character Error Rate
-    wer = model.wer_fn(preds, label).item() # Word Error Rate
+    cer = model.cer_fn(preds[0], label[0]).item() # Character Error Rate
+    wer = model.wer_fn(preds[0], label[0]).item() # Word Error Rate
     
     output = {
         "val_loss"              : val_loss,
         "CER"                   : cer,
         "WER"                   : wer,
-        "label"                 : label,
+        "label"                 : label[0],
         "pred_ids"              : pred_ids,
-        "pred_tokens"           : preds,
+        "pred_tokens"           : preds[0],
         "self_attn_ws"          : self_attn_ws, 
-        "cross_attn_ws"         : cross_attn_ws
+        "cross_attn_ws"         : cross_attn_ws,
+        "dist": lev_dist
     }
     
     return output
 
+
 def run_experiment(model, dm, opt, loss_fn, scheduler):
     
-    loss_epoch = np.inf
-    val_loss = np.inf
-    best_val_loss = np.inf
+    # setup data module
+    dm.setup()
+    
+    # setup metrics reporting
+    loss_epoch = 1e9
+    val_loss = 1e9
+    best_val_loss = 1e9
+    best_val_dist = 1e9
     
     cer_ = np.inf
     wer_ = np.inf
@@ -476,7 +497,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
         
         # training
         model.train()
-        for step, batch in enumerate(dm.train_dataloader()):            
+        for step, batch in enumerate(dm.train_dataloader()):   
             pct = 100. * step / num_steps
             pbar.set_description(
                 f"Epoch {e+1}/{config.EPOCHS} - (Train {pct:.1f}%)"
@@ -499,7 +520,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
                 pre_fix="train_selfattn", 
                 folder="train",
                 epoch=e,
-                wandb_logging=True
+                wandb_logging=config.WANDB_LOGGING
             )
 
             plot_attention(
@@ -509,7 +530,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
                 show=False, 
                 folder="train",
                 epoch=e,
-                wandb_logging=True
+                wandb_logging=config.WANDB_LOGGING
             )   
             
             running_loss += loss.item()         
@@ -521,7 +542,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
                     train_loss="{:.04f}".format(loss_epoch),
                     CER="{:.04f}".format(cer_),
                     WER="{:.04f}".format(wer_),
-                    val_loss="{:.04f}".format(val_loss),
+                    val_loss="{:.04f}".format(best_val_loss),
                 )
                 pbar.update()
 
@@ -560,13 +581,12 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             f.write(f"Actual \t\t: {label}\n")
                 
         # validation
-        out = validation_step(model=rt1, batch=batch, loss_fn=loss_fn)
+        val_batch = next(iter(dm.val_dataloader()))
+        out = validation_step(model=model, batch=val_batch, loss_fn=loss_fn)
         val_loss = out["val_loss"]
         
-        # start scheduling lr after epoch X
-        # X set to 30 to start us of
-        if e >=30:
-            scheduler.step(val_loss)
+        # Edit distance
+        val_dist = out["dist"]
        
         # plot attention weights
         plot_attention(
@@ -575,7 +595,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             pre_fix="val_selfattn", 
             folder="val",
             epoch=e,
-            wandb_logging=True
+            wandb_logging=config.WANDB_LOGGING
         )
 
         plot_attention(
@@ -585,44 +605,49 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             show=False, 
             folder="val",
             epoch=e,
-            wandb_logging=True
+            wandb_logging=config.WANDB_LOGGING
         )   
         
+        
         # update best score
+        if val_dist < best_val_dist:
+            best_val_dist = val_dist
+                
         if val_loss < best_val_loss:
+            # update best scores
+            best_val_loss = val_loss  
+            
             # save checkpoint
             path = os.path.join(config.MODEL_PATH, "be_model.bin")
             torch.save({
                 'model_state_dict'      :model.state_dict(),
                 'optimizer_state_dict'  :opt.state_dict(),
-                'val_loss'              : val_loss, 
+                'val_dist'              : best_val_dist, 
                 'epoch'                 : e
-                }, path)
-            
-            # update best score
-            best_val_loss = val_loss        
+                }, path)                
+                
         
         pbar.set_postfix(
             train_loss_step="{:.04f}".format(running_loss/(step+1)),
             train_loss="{:.04f}".format(loss_epoch),
             # CER="{:.04f}".format(cer_),
             # WER="{:.04f}".format(wer_),
-            val_Loss="{:.04f}".format(val_loss),
+            val_Loss="{:.04f}".format(best_val_loss),
             val_CER="{:.04f}".format(out["CER"]),
             val_WER="{:.04f}".format(out["WER"]),
-            lr_epoch="{:.1e}".format(final_lr_epoch),
+            # lr_epoch="{:.1e}".format(final_lr_epoch),
         )  
         pbar.update()
         
         logs_dict = {
             "epoch" :e,
             "train_loss":loss_epoch,
-            "val_loss":val_loss,
+            "val_loss":best_val_loss,
             "val_CER":out["CER"],
             "valWER":out["WER"],
             "lr":final_lr_epoch
         }
-        wandb.log(logs_dict)
+        # wandb.log(logs_dict)
         
         # log decoded sentenses
         with open(config.LOGGING_FILE, "a") as f:                        
@@ -633,12 +658,14 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n") 
             f.write(f"Curr val loss \t\t: {val_loss:.5f}\n") 
+            f.write(f"Best Val dist \t\t: {best_val_dist:.5f}\n") 
             f.write(f"Best loss: \t\t: {best_val_loss:.5f}\n\n") 
             
         pbar.close()
         torch.cuda.empty_cache()
         
     return model
+
 
 def lrfn(
     epoch:int, 
@@ -650,7 +677,7 @@ def lrfn(
 
 ):
     """
-        Courtesy of Chris Deotte KGMON@NVIDIAc
+        Courtesy of Chris Deotte KGMON@NVIDIA
     """
     lr_rampup_epochs = num_epochs // (5*3)
     lr_sustain_epochs = num_epochs // (5*5)
@@ -663,3 +690,24 @@ def lrfn(
     else:
         lr = (lr_max - lr_min) * lr_exp_decay**(epoch - lr_rampup_epochs - lr_sustain_epochs) + lr_min
     return lr
+
+
+def calc_edit_distance(predictions:list, y:list, batch:bool=False):
+
+    dist                = 0
+    
+    if batch:
+        batch_size = len(predictions)
+        for idx in range(batch_size): 
+
+            y_    = y[idx]
+            pred_ = predictions[idx]
+
+            dist      += Levenshtein.distance(y_, pred_)
+
+        dist    /= batch_size
+    else:
+        dist      += Levenshtein.distance(y, predictions)
+
+    
+    return dist

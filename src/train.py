@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 29 Nov, 2023
+Last Update: 2 Jan, 2024
 """
 import argparse
 
@@ -19,7 +19,7 @@ from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 import os
 
 from pprint import pprint
-from rt1 import RT1CRAM
+from rt1 import RTCRAM
 
 import sys
 
@@ -52,11 +52,11 @@ if __name__ == "__main__":
     _ = seed_everything(config.SEED)
     
     # build model
-    rt1 = RT1CRAM(
+    rt1 = RTCRAM(
         cnn_bacnbone=config.SELECTED_CNN_BACKBONE, 
         num_res_blocks=config.NUM_RES_BLOCKS,
         freeze_cnn_backbone=args.freeze_cnn,
-        args=args
+        args=None
     ).cuda()
     # print(rt1)
 
@@ -65,9 +65,7 @@ if __name__ == "__main__":
     # build data module
     dm = BEDataModule()
     
-    if args.vanilla:
-        dm.setup()
-        
+    if args.vanilla:        
         loss_fn = nn.CrossEntropyLoss(
             ignore_index=config.TGT_PAD_TOK_ID, 
             label_smoothing=config.LABEL_SMOOTHING

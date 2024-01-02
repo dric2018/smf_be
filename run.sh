@@ -12,9 +12,6 @@ if source activate smf_be; then
 	echo "Starting training job...<train.py>"
 	python ./train.py
 
-	echo "Displaying logfile..."
-	tail -n 30 ../logs/logs.txt
-
 	echo "Going back to working directory..."
 	cd ..
 else
