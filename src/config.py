@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 17 Dec, 2023
+Last Update: 3 Jan, 2024
 """
 
 import albumentations as A
@@ -28,8 +28,8 @@ LOGGING_FILE = f"../logs/logs_{formatted_datetime}.txt"
 MODEL_LOGGING_FILE = "../logs/model_config.txt"
 
 # Vocabulary & Maps
-SPECIAL_TOKENS = ["[EOS]", "[SOS]"]
-SPECIAL_TOKEN_IDS = [0, 1]
+SPECIAL_TOKENS = ["[PAD]", "[SOS]", "[EOS]"]
+SPECIAL_TOKEN_IDS = [0, 1, 2]
 TARGETS         = SPECIAL_TOKENS + [tok for tok in vocab.OBJECTS+vocab.MOTOR_COMMANDS]
 TARGETS_MAPPING = {tok:idx for idx,tok in enumerate(TARGETS)}
 TARGETS_REVERSE_MAPPING = {idx:tok for idx,tok in enumerate(TARGETS)}
@@ -37,7 +37,7 @@ TARGET_VOCAB_SIZE = len(TARGETS)
 
 # Special tokens
 SRC_PAD_TOK_ID = 0
-TGT_PAD_TOK_ID = TARGETS_MAPPING["[EOS]"]
+TGT_PAD_TOK_ID = TARGETS_MAPPING["[PAD]"]
 
 # Inputs & Tokenizer
 # Constants for normalization
@@ -63,7 +63,7 @@ HISTORY_AUGS = A.Compose([
 ])
 MAX_LEN = 16
 NUM_DECODER_INP_IDS_FOR_LEARNED_TOKENS = 2
-VALIDATION_PCT = .15
+VALIDATION_PCT = .1
 
 # model
 IMG_ENCODER_BACKBONES = {
@@ -86,7 +86,7 @@ LANG_MODEL_NAME = 'prajjwal1/bert-small'
 TOKENIZER_CONFIG = {
     "do_lower_case": True
 }
-WANDB_LOGGING  = False
+WANDB_LOGGING  = True
 
 # training
 RUN_NAME = "be_model"
@@ -95,6 +95,7 @@ PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 BATCH_SIZE = 128
 EPOCHS = 80
+NUM_VAL_STEPS = 1
 
 LR = 3e-3
 LR_SCHEDULE_START = 200
@@ -106,7 +107,7 @@ LR_MIN = 1e-7
 LR_EXP_DECAY = .99
 
 OPTIMIZER = "Adam"
-NUM_WORKERS = 4
+NUM_WORKERS = 1 #4
 LABEL_SMOOTHING = 0.0
 GRAD_CLIP_VAL = 2.
 WEIGHT_DECAY = 2e-6
@@ -154,11 +155,11 @@ NUM_CHANNELS = {
     "efficientnet_b4": 448,
     "resnet50": 2048,
 }
-ENCODER_DROPOUT_RATE = 0.2
+ENCODER_DROPOUT_RATE = 0.1
 EMBEDDING_DIM = 512
 DIM_VL_TOKENS = EMBEDDING_DIM
 
-TOKEN_LEARNER_DROPOUT = 0.15
+TOKEN_LEARNER_DROPOUT = 0.1
 TOKEN_LEARNER_DIM = 256
 
 ### Decoder
@@ -172,7 +173,7 @@ EXPANSION = 2
 D_MODEL = EMBEDDING_DIM
 D_K = D_MODEL // N_HEADS 
 D_FF = 1024
-DECODER_DROPOUT_RATE = 0.1
+DECODER_DROPOUT_RATE = 0.2
 ACTION_BINS = 256
 MAX_OUT_SEQ_LEN = 16
 NUM_ACTION_SLOTS = 9 # discrete action space as in RT1 

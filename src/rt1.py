@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update:  16 Dec, 2023
+Last Update:  3 Jan, 2024
 
 # Code Description
 ======================
@@ -284,7 +284,7 @@ class RTCRAM(pl.LightningModule):
         
     def _init_weights(self, module):
         for p in module.parameters():
-            if p.dim() > 1:
+            if p.dim() > 1 and p.requires_grad:
                 nn.init.xavier_uniform_(p)
 
         
@@ -365,7 +365,7 @@ class RTCRAM(pl.LightningModule):
 
             _, next_tok = torch.max(probs, dim=-1)
 
-            if t > 1 and next_tok == eos_token:
+            if t >= 1 and next_tok == eos_token:
                 break
 
             # update decoder input
@@ -381,7 +381,7 @@ class RTCRAM(pl.LightningModule):
         for b in range(B):
             curr_preds = []
             for t, tok in enumerate(predicted_ids.tolist()[b]):
-                if t>=1 and tok == 2:
+                if t >=1 and tok == config.TGT_PAD_TOK_ID:
                     # EOS token encountered
                     break
                 else:
@@ -428,13 +428,6 @@ class RTCRAM(pl.LightningModule):
             lr=LR,
             # weight_decay=config.WEIGHT_DECAY
         )
-        
-        # scheduler = getattr(torch.optim.lr_scheduler, config.LR_SCHEDULER["type"])(
-        #     opt, 
-        #     **config.LR_SCHEDULER["params"]
-        # )
-        
-        # return {"optimizer": opt, "lr_scheduler": scheduler, "monitor": "val_loss"}
         
         return opt
     

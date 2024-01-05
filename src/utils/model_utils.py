@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Jan, 2024
+Last Update: 3 Jan, 2024
 """
 
 import config
@@ -19,7 +19,7 @@ import os
 
 import timm
 
-from tqdm.notebook imoort tqdm 
+from tqdm.auto import tqdm 
 
 import torch
 import torch.nn as nn
@@ -325,8 +325,9 @@ def greedy_decoding(
 
         _, next_tok = torch.max(probs, dim=-1)
         
-        if t>=1 and next_tok == eos_token:
-            break
+        # stop decoding if 2nd token is "EOS"
+        # if t>=1 and next_tok == eos_token:
+        #     break
         # update decoder input
         decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
             
@@ -338,7 +339,7 @@ def decode_predictions(predicted_ids:torch.Tensor)->list:
     curr_preds = []
     
     for tok in predicted_ids.tolist():
-        if tok == 2:
+        if tok == config.TGT_PAD_TOK_ID:
             # EOS token encountered
             break
         else:
@@ -432,7 +433,6 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
         batch_inp=inp, 
         debug=debug
     )
-    # print("NaN in logits?: ", has_nan(logits))
     
     labels = inp["labels"].to(config.DEVICE)
     
@@ -450,40 +450,66 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
     
     # compute metrics
     # print(logits.shape, labels.shape)
-    val_loss = loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1)).item()  # loss
-    cer = model.cer_fn(preds[0], label[0]).item() # Character Error Rate
-    wer = model.wer_fn(preds[0], label[0]).item() # Word Error Rate
+    # val_loss = loss_fn(logits.view(-1, logits.shape[2]), labels.view(-1)).item()  # loss
+    # cer = model.cer_fn(preds[0], label[0]).item() # Character Error Rate
+    # wer = model.wer_fn(preds[0], label[0]).item() # Word Error Rate
     
     output = {
-        "val_loss"              : val_loss,
-        "CER"                   : cer,
-        "WER"                   : wer,
         "label"                 : label[0],
-        "pred_ids"              : pred_ids,
         "pred_tokens"           : preds[0],
         "self_attn_ws"          : self_attn_ws, 
         "cross_attn_ws"         : cross_attn_ws,
+        "logits":logits,
         "dist": lev_dist
     }
     
     return output
 
 
-def run_experiment(model, dm, opt, loss_fn, scheduler):
+def run_experiment(
+    model, 
+    dm, 
+    opt, 
+    loss_fn, 
+    scheduler, 
+    resume_training:bool=False, 
+    epoch_resume:int=0
+):
     
     # setup data module
     dm.setup()
     
-    # setup metrics reporting
-    loss_epoch = 1e9
-    val_loss = 1e9
-    best_val_loss = 1e9
-    best_val_dist = 1e9
+    if resume_training:
+        # load checkpoint
+        print("Loading model from checkpoint...")
+        CKPT_PATH = os.path.join(config.MODEL_PATH, "be_model.bin")
+        ckpt = torch.load(CKPT_PATH)
+        EPOCH_RESUME = ckpt["epoch"] if ckpt["epoch"] > 0 else epoch_resume
+        
+        # load model state dict
+        model.load_state_dict(ckpt["model_state_dict"])
+        
+        # load optimizer state dict
+        opt.load_state_dict(ckpt["optimizer_state_dict"])
+
+        # setup metrics reporting
+        val_dist, best_val_dist = ckpt["val_dist"], ckpt["val_dist"]
+        perplexity, best_perplexity = ckpt["perplexity"], ckpt["perplexity"]
+        
+        print("Loading model from checkpoint...Complete!")
+    else:
+        # setup metrics reporting
+        val_dist = 1e9
+        best_val_dist = 1e9
+        perplexity = 1e9
+        best_perplexity = 1e9
+        
     
-    cer_ = np.inf
-    wer_ = np.inf
+    epoch_bar = range(config.EPOCHS)
+    if resume_training:
+        epoch_bar = range(EPOCH_RESUME, config.EPOCHS)
     
-    for e in range(config.EPOCHS):        
+    for e in epoch_bar:        
         running_loss = 0.
         num_steps = len(dm.train_dataloader())
         
@@ -533,26 +559,25 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
                 wandb_logging=config.WANDB_LOGGING
             )   
             
-            running_loss += loss.item()         
+            running_loss += loss.item()
+            train_loss = running_loss/(step+1)
+            perplexity = torch.exp(loss)
             
             # logging
             if step % 10 == 0:
                 pbar.set_postfix(
-                    train_loss_step="{:.04f}".format(running_loss/(step+1)),
-                    train_loss="{:.04f}".format(loss_epoch),
-                    CER="{:.04f}".format(cer_),
-                    WER="{:.04f}".format(wer_),
-                    val_loss="{:.04f}".format(best_val_loss),
+                    train_loss="{:.04f}".format(train_loss),
+                    perplexity="{:.04f}".format(perplexity),
+                    val_dist="{:.04f}".format(val_dist)
                 )
                 pbar.update()
 
             # backward
             loss.backward()
             
-            # Adjust learning weights
+            # Adjust weights
             opt.step()
             
-        loss_epoch = running_loss / len(dm.train_dataloader())   
         final_lr_epoch = float(opt.param_groups[0]['lr'])
         
         # predictions
@@ -575,19 +600,23 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             pred = preds[0]
             label = labels[0]
             
-            cer_ = model.cer_fn(pred, label).item()
-            wer_ = model.wer_fn(pred, label).item()
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n")
-                
-        # validation
-        val_batch = next(iter(dm.val_dataloader()))
-        out = validation_step(model=model, batch=val_batch, loss_fn=loss_fn)
-        val_loss = out["val_loss"]
+            f.write(f"Loss \t\t: {train_loss:.3f}\n")
+            f.write(f"Perplexity \t\t: {perplexity:.3f}\n")
+                        
+        # valid_pbar = tqdm(range(config.NUM_VAL_STEPS), desc="Validating...")
+            
+        for _ in range(config.NUM_VAL_STEPS):
+            val_batch = next(iter(dm.val_dataloader()))
+            out = validation_step(model=model, batch=val_batch, loss_fn=loss_fn)
+
+            # Edit distance
+            dist = out["dist"]
         
-        # Edit distance
-        val_dist = out["dist"]
-       
+        # aggregate results
+        val_dist = dist / config.NUM_VAL_STEPS
+
         # plot attention weights
         plot_attention(
             out["self_attn_ws"], 
@@ -608,46 +637,40 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             wandb_logging=config.WANDB_LOGGING
         )   
         
-        
         # update best score
-        if val_dist < best_val_dist:
-            best_val_dist = val_dist
-                
-        if val_loss < best_val_loss:
-            # update best scores
-            best_val_loss = val_loss  
+        if perplexity < best_perplexity:
+            best_perplexity = perplexity
             
+            if val_dist < best_val_dist:
+                best_val_dist = val_dist
+                        
             # save checkpoint
             path = os.path.join(config.MODEL_PATH, "be_model.bin")
             torch.save({
-                'model_state_dict'      :model.state_dict(),
-                'optimizer_state_dict'  :opt.state_dict(),
-                'val_dist'              : best_val_dist, 
+                'model_state_dict'      : model.state_dict(),
+                'optimizer_state_dict'  : opt.state_dict(),
+                'val_dist'              : best_val_dist,
+                'perplexity': best_perplexity,
                 'epoch'                 : e
                 }, path)                
                 
         
         pbar.set_postfix(
-            train_loss_step="{:.04f}".format(running_loss/(step+1)),
-            train_loss="{:.04f}".format(loss_epoch),
-            # CER="{:.04f}".format(cer_),
-            # WER="{:.04f}".format(wer_),
-            val_Loss="{:.04f}".format(best_val_loss),
-            val_CER="{:.04f}".format(out["CER"]),
-            val_WER="{:.04f}".format(out["WER"]),
-            # lr_epoch="{:.1e}".format(final_lr_epoch),
+            train_loss="{:.04f}".format(train_loss),
+            perplexity="{:.04f}".format(perplexity),
+            val_dist="{:.04f}".format(val_dist),
+            LR="{:.1e}".format(final_lr_epoch)
         )  
         pbar.update()
         
         logs_dict = {
             "epoch" :e,
-            "train_loss":loss_epoch,
-            "val_loss":best_val_loss,
-            "val_CER":out["CER"],
-            "valWER":out["WER"],
+            "train_loss":train_loss,
+            "perplexity":perplexity,
+            "Lev_dist": best_val_dist,
             "lr":final_lr_epoch
         }
-        # wandb.log(logs_dict)
+        wandb.log(logs_dict)
         
         # log decoded sentenses
         with open(config.LOGGING_FILE, "a") as f:                        
@@ -657,9 +680,7 @@ def run_experiment(model, dm, opt, loss_fn, scheduler):
             f.write(f"[Val] \n")            
             f.write(f"Predicted \t: {pred}\n")
             f.write(f"Actual \t\t: {label}\n") 
-            f.write(f"Curr val loss \t\t: {val_loss:.5f}\n") 
-            f.write(f"Best Val dist \t\t: {best_val_dist:.5f}\n") 
-            f.write(f"Best loss: \t\t: {best_val_loss:.5f}\n\n") 
+            f.write(f"Best Val dist \t\t: {best_val_dist:.3f}\n\n") 
             
         pbar.close()
         torch.cuda.empty_cache()

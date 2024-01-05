@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Jan, 2024
+Last Update: 3 Jan, 2024
 """
 import argparse
 
@@ -10,15 +10,17 @@ import config
 
 from dataloader import BEDataModule
 
-import lightning.pytorch as pl
-from lightning.pytorch import Trainer, seed_everything
 from lightning.pytorch.callbacks import RichProgressBar, TQDMProgressBar, ModelCheckpoint, LearningRateMonitor
 from lightning.pytorch.callbacks.progress.rich_progress import RichProgressBarTheme
 from lightning.pytorch.loggers import TensorBoardLogger, WandbLogger
 
+import numpy as np
 import os
 
 from pprint import pprint
+
+import random
+
 from rt1 import RTCRAM
 
 import sys
@@ -49,7 +51,15 @@ if __name__ == "__main__":
     pprint(vars(args))
         
     # set seed
-    _ = seed_everything(config.SEED)
+    random.seed(config.SEED)
+    np.random.seed(config.SEED)
+    torch.manual_seed(config.SEED)
+
+    if torch.cuda.is_available(): 
+        torch.cuda.manual_seed(config.SEED)
+        torch.cuda.manual_seed_all(config.SEED)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
     
     # build model
     rt1 = RTCRAM(
