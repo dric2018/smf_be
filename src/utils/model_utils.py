@@ -292,8 +292,8 @@ def greedy_decoding(
         model.to(config.DEVICE)
     model.eval()
     
-    sos_token = config.TARGETS_MAPPING["[SOS]"]
-    eos_token = config.TARGETS_MAPPING["[EOS]"]
+    sos_token = config.SOS_TOKEN_ID
+    eos_token = config.EOS_TOKEN_ID
     
     input_ids=batch_inp["ids"].to(config.DEVICE)
     attn_mask=batch_inp["mask"].to(config.DEVICE)
@@ -326,8 +326,8 @@ def greedy_decoding(
         _, next_tok = torch.max(probs, dim=-1)
         
         # stop decoding if 2nd token is "EOS"
-        # if t>=1 and next_tok == eos_token:
-        #     break
+        if t>=1 and next_tok == eos_token:
+            break
         # update decoder input
         decoder_inp = torch.cat((decoder_inp, next_tok.unsqueeze(1)), dim=1)
             
@@ -339,7 +339,7 @@ def decode_predictions(predicted_ids:torch.Tensor)->list:
     curr_preds = []
     
     for tok in predicted_ids.tolist():
-        if tok == config.TGT_PAD_TOK_ID:
+        if tok == config.EOS_TOKEN_ID:
             # EOS token encountered
             break
         else:
@@ -720,10 +720,9 @@ def calc_edit_distance(predictions:list, y:list, batch:bool=False):
     if batch:
         batch_size = len(predictions)
         for idx in range(batch_size): 
-
             y_    = y[idx]
             pred_ = predictions[idx]
-
+            # distance
             dist      += Levenshtein.distance(y_, pred_)
 
         dist    /= batch_size

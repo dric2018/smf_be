@@ -43,6 +43,8 @@ parser.add_argument("--learning_rate", "-lr", type=float, default=config.LR)
 parser.add_argument("--cnn_arch", "-a", type=str, default="efficientnet_b3")
 parser.add_argument("--freeze_cnn", "-free", type=bool, default=config.FREEZE_CNN)
 parser.add_argument("--vanilla", "-pt", type=bool, default=True)
+parser.add_argument("--resume", "-r", type=bool, default=False)
+parser.add_argument("--epoch_resume", "-e", type=int, default=1)
 
 if __name__ == "__main__":
     
@@ -117,7 +119,9 @@ if __name__ == "__main__":
             dm=dm, 
             opt=opt, 
             loss_fn=loss_fn,
-            scheduler=scheduler
+            scheduler=scheduler,
+            resume_training=args.resume,
+            epoch_resume=args.epoch_resume
         )
 
         wandb.finish()

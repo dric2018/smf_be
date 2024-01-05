@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 2 Jan, 2024
+Last Update: 5 Jan, 2024
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -37,7 +37,7 @@ class TargetEncoding:
         self.ids = None
         self.tokens = None
         self.attention_mask = None
-        self.pad_id = config.TARGETS.index("[EOS]")
+        self.pad_id = config.TGT_PAD_TOK_ID
 
         if inp is not None:
             self._encode(inp)
@@ -49,11 +49,11 @@ class TargetEncoding:
         return full_string.split()
     
     def _encode(self, inp:str):
-        dec_inp_tokens                  = self.tokenize_by_space("[SOS] "+inp)
+        dec_inp_tokens                  = self.tokenize_by_space(f"{config.SOS_TOKEN} "+inp)
         dec_inp_token_ids               = [config.TARGETS_MAPPING[t] for t in dec_inp_tokens]
         len_dec_inputs                  = len(dec_inp_token_ids)
         
-        labels = self.tokenize_by_space(inp+" [EOS]")
+        labels = self.tokenize_by_space(inp+f" {config.EOS_TOKEN}")
         label_token_ids               = [config.TARGETS_MAPPING[t] for t in labels]
         
         # compute padding length

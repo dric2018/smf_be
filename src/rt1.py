@@ -381,7 +381,7 @@ class RTCRAM(pl.LightningModule):
         for b in range(B):
             curr_preds = []
             for t, tok in enumerate(predicted_ids.tolist()[b]):
-                if t >=1 and tok == config.TGT_PAD_TOK_ID:
+                if t >=1 and tok == config.EOS_TOKEN_ID:
                     # EOS token encountered
                     break
                 else:
