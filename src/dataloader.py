@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 5 Jan, 2024
+Last Update: 6 Jan, 2024
 """
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
@@ -202,7 +202,7 @@ class BEDataset(Dataset):
             
         }
 
-        if self.task == "train":
+        if self.task == "train" or self.task == "eval":
             dec_inp = torch.as_tensor(enc_cmd.dec_inp_token_ids).long()
             labels  = torch.as_tensor(enc_cmd.label_token_ids).long()
             
@@ -272,7 +272,7 @@ class BEDataModule(pl.LightningDataModule):
         #  test dataset
         self.test_ds = BEDataset(
                 df=self.test_df,
-                task='test'
+                task='eval'
             )
         test_data_size = len(self.test_ds)
 
@@ -314,7 +314,7 @@ class BEDataModule(pl.LightningDataModule):
         """
         return DataLoader(
             dataset=self.test_ds,
-            batch_size=config.BATCH_SIZE,
+            batch_size=config.TEST_BATCH_SIZE,
             shuffle=False,
             num_workers=config.NUM_WORKERS,
             drop_last=False

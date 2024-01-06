@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Jan, 2024
+Last Update: 6 Jan, 2024
 """
 
 import albumentations as A
@@ -99,7 +99,9 @@ RUN_NAME = "be_model"
 GROUP_NAME = "RT1-CRAM"
 PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+TEST_DEVICE = "cpu"
 BATCH_SIZE = 128
+TEST_BATCH_SIZE = 64
 EPOCHS = 80
 NUM_VAL_STEPS = 1
 

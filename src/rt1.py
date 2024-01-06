@@ -2,7 +2,7 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update:  3 Jan, 2024
+Last Update:  6 Jan, 2024
 
 # Code Description
 ======================
@@ -615,5 +615,92 @@ class RTCRAM(pl.LightningModule):
         self.cross_attn_weights.clear()
         
         
-    def test_step(self, batch, batch_idx):
-        pass
+    def inference_step(
+        self,
+        test_loader, 
+        debug:bool=False, 
+        mode:str="inference",
+        device:str=config.TEST_DEVICE
+    ):
+
+        """
+            Execute inference procedure in 2 modes
+
+            mode: (str) One of 
+                inference: generate predictions using trained model
+                eval: Evaluate model by comparing predictions to ground truth
+
+            test_loader: (DataLoader) Data loader to be used for testing
+        """
+
+        model = load_checkpoint()
+
+        output = {
+            "self_attn_ws"          : [], 
+            "cross_attn_ws"         : [],
+            "preds"         : [],
+            "labels" : []
+        }
+
+        test_progress = tqdm(range(len(test_loader)), desc="Running inference")
+
+        for batch_num in test_progress:
+            batch = next(iter(test_loader))
+
+            for sample_id in tqdm(range(config.TEST_BATCH_SIZE), leave=False, desc="Generating motor commands"):
+
+                inp = model_utils.fetch_sample_from_batch(
+                    batch, 
+                    batch_size=batch["in_state"].shape[0],
+                    random=False,
+                    idx=sample_id
+                )
+
+                pred_ids, logits, self_attn_ws, cross_attn_ws = model_utils.greedy_decoding(
+                    model=model, 
+                    batch_inp=inp, 
+                    debug=debug,
+                    device=device
+                )
+
+
+                preds = model.decode_predictions(
+                        predicted_ids=pred_ids
+                )
+
+                output["self_attn_ws"].append(self_attn_ws)
+                output["cross_attn_ws"].append(cross_attn_ws)
+                output["preds"].append(preds[0])
+
+                if mode == "eval":
+                    labels = inp["labels"].to(config.DEVICE)
+                    label = model.decode_predictions(
+                        predicted_ids=labels
+                    )
+                output["labels"].append(label[0])
+
+            # break
+
+        if mode == "eval":
+            test_dist = model_utils.calc_edit_distance(
+                predictions=out["preds"], 
+                y=out["labels"], 
+                batch=True
+            )        
+
+            inference_results = pd.DataFrame({
+                "prediction": output["preds"],
+                "label": output["labels"],
+                "correct": [float(p==l) for p,l in zip(output["preds"], output["labels"])],
+                "distance": [model_utils.calc_edit_distance(p, l, batch=False) for p,l in zip(output["preds"], output["labels"])]
+            })
+
+            success_rate = 100*inference_results.correct.mean()
+
+            print(f"**** Evaluatiion Report *****")
+            print(f"> Test Lev. distance\t: {test_dist}")
+            print(f"> Success Rate\t\t: {success_rate}%")
+            print(f"**** Evaluatiion Report *****")
+            return inference_results
+        else:
+            return output

@@ -2,14 +2,15 @@
 # Author Information
 ======================
 Author: Cedric Manouan
-Last Update: 3 Jan, 2024
+Last Update: 6 Jan, 2024
 """
 
 import config
 
 import lightning.pytorch as pl
 import Levenshtein
-
+import logging
+logging.basicConfig(level="INFO")
 
 from matplotlib import pyplot
 
@@ -281,24 +282,25 @@ def plot_attention(
             
                 pyplot.close()
 
-
+@torch.inference_mode()
 def greedy_decoding(
-    model:pl.LightningModule, 
-    batch_inp:dict, 
+    model:pl.LightningModule=None, 
+    batch_inp:dict=None, 
     max_len:int=config.MAX_OUT_SEQ_LEN, 
-    debug:bool=False
+    debug:bool=False,
+    device:"str"=config.DEVICE
 ):
     if model.device.type == "cpu":
-        model.to(config.DEVICE)
+        model.to(device)
     model.eval()
     
     sos_token = config.SOS_TOKEN_ID
     eos_token = config.EOS_TOKEN_ID
     
-    input_ids=batch_inp["ids"].to(config.DEVICE)
-    attn_mask=batch_inp["mask"].to(config.DEVICE)
-    token_type_ids=batch_inp["token_type_ids"].to(config.DEVICE)
-    imgs=batch_inp["in_state"].to(config.DEVICE)
+    input_ids=batch_inp["ids"].to(device)
+    attn_mask=batch_inp["mask"].to(device)
+    token_type_ids=batch_inp["token_type_ids"].to(device)
+    imgs=batch_inp["in_state"].to(device)
 
     _, learned_tokens = model._encode(
         input_ids=input_ids, 
@@ -312,8 +314,8 @@ def greedy_decoding(
     for t in range(config.MAX_OUT_SEQ_LEN):
         mask = make_attn_mask(dim=decoder_inp.shape[1])
 
-        with torch.no_grad():
-            logits, self_attn_ws, cross_attn_ws = model._decode(
+        # with torch.no_grad():
+        logits, self_attn_ws, cross_attn_ws = model._decode(
             decoder_inp=decoder_inp, 
             encoder_out=learned_tokens,
             attn_mask=mask,
@@ -350,13 +352,15 @@ def decode_predictions(predicted_ids:torch.Tensor)->list:
 def fetch_sample_from_batch(
     batch, 
     batch_size:int, 
-    random:bool=False
+    random:bool=False,
+    idx:int=0
 ):
     
     if random:
         idx = np.random.randint(batch_size)
     else:
-        idx = 0
+        assert idx < batch_size, f"Value of idx ({idx}) is higher than batch size ({batch_size})"
+        idx = idx
     
     sample  = {}
     
@@ -465,6 +469,28 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
     
     return output
 
+def load_checkpoint(device:str=config.DEVICE):
+    
+    logging.info("Loading model from checkpoint...")
+    
+    # create model object
+    model = RTCRAM(
+        cnn_bacnbone=config.SELECTED_CNN_BACKBONE, 
+        num_res_blocks=config.NUM_RES_BLOCKS,
+        freeze_cnn_backbone=config.FREEZE_CNN,
+        args=None
+    ).to(device)
+    
+    logging.info("Preparing checkpoint...")
+    CKPT_PATH = os.path.join(config.MODEL_PATH, "be_model.bin")
+    ckpt = torch.load(CKPT_PATH)  
+    
+    logging.info("loading model state dict...")
+    model.load_state_dict(ckpt["model_state_dict"])
+    
+    logging.info("Loading model from checkpoint...Complete!")
+    
+    return model
 
 def run_experiment(
     model, 
@@ -481,13 +507,12 @@ def run_experiment(
     
     if resume_training:
         # load checkpoint
-        print("Loading model from checkpoint...")
         CKPT_PATH = os.path.join(config.MODEL_PATH, "be_model.bin")
         ckpt = torch.load(CKPT_PATH)
         EPOCH_RESUME = ckpt["epoch"] if ckpt["epoch"] > 0 else epoch_resume
         
         # load model state dict
-        model.load_state_dict(ckpt["model_state_dict"])
+        model = load_checkpoint()
         
         # load optimizer state dict
         opt.load_state_dict(ckpt["optimizer_state_dict"])
@@ -496,7 +521,6 @@ def run_experiment(
         val_dist, best_val_dist = ckpt["val_dist"], ckpt["val_dist"]
         perplexity, best_perplexity = ckpt["perplexity"], ckpt["perplexity"]
         
-        print("Loading model from checkpoint...Complete!")
     else:
         # setup metrics reporting
         val_dist = 1e9
