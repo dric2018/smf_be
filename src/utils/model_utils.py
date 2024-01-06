@@ -18,6 +18,7 @@ import numpy as np
 
 import os
 
+import pandas as pd
 import rt1
 import timm
 
@@ -470,7 +471,7 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
     
     return output
 
-def load_checkpoint(device:str=config.DEVICE):
+def load_checkpoint(model_name:str="be_model", device:str=config.DEVICE):
     
     logging.info("Loading model from checkpoint...")
     
@@ -484,7 +485,7 @@ def load_checkpoint(device:str=config.DEVICE):
     ).to(device)
     
     logging.info("Preparing checkpoint...")
-    CKPT_PATH = os.path.join(config.MODEL_PATH, "be_model.bin")
+    CKPT_PATH = os.path.join(config.MODEL_PATH, model_name+".bin")
     ckpt = torch.load(CKPT_PATH)  
     
     logging.info("loading model state dict...")
@@ -776,7 +777,7 @@ def inference_step(
         test_loader: (DataLoader) Data loader to be used for testing
     """
     
-    model = load_checkpoint()
+    model = load_checkpoint(model_name="RTCRAM")
     
     output = {
         "self_attn_ws"          : [], 
