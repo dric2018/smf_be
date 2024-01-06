@@ -18,6 +18,7 @@ import numpy as np
 
 import os
 
+import rt1
 import timm
 
 from tqdm.auto import tqdm 
@@ -473,8 +474,9 @@ def load_checkpoint(device:str=config.DEVICE):
     
     logging.info("Loading model from checkpoint...")
     
-    # create model object
-    model = RTCRAM(
+    logging.info("Creating instance of RTCRAM...")
+    
+    model = rt1.RTCRAM(
         cnn_bacnbone=config.SELECTED_CNN_BACKBONE, 
         num_res_blocks=config.NUM_RES_BLOCKS,
         freeze_cnn_backbone=config.FREEZE_CNN,
@@ -755,3 +757,95 @@ def calc_edit_distance(predictions:list, y:list, batch:bool=False):
 
     
     return dist
+
+
+def inference_step(
+    test_loader, 
+    debug:bool=False, 
+    mode:str="inference",
+    device:str=config.TEST_DEVICE
+):
+    
+    """
+        Execute inference procedure in 2 modes
+        
+        mode: (str) One of 
+            inference: generate predictions using trained model
+            eval: Evaluate model by comparing predictions to ground truth
+            
+        test_loader: (DataLoader) Data loader to be used for testing
+    """
+    
+    model = load_checkpoint()
+    
+    output = {
+        "self_attn_ws"          : [], 
+        "cross_attn_ws"         : [],
+        "preds"         : [],
+        "labels" : []
+    }
+    logging.info("Running inference now...")
+
+    
+    test_progress = tqdm(range(len(test_loader)), desc="Running inference")
+    
+    for batch_num in test_progress:
+        batch = next(iter(test_loader))
+        
+        for sample_id in tqdm(range(config.TEST_BATCH_SIZE), leave=False, desc="Generating motor commands"):
+        
+            inp = fetch_sample_from_batch(
+                batch, 
+                batch_size=batch["in_state"].shape[0],
+                random=False,
+                idx=sample_id
+            )
+
+            pred_ids, logits, self_attn_ws, cross_attn_ws = greedy_decoding(
+                model=model, 
+                batch_inp=inp, 
+                debug=debug,
+                device=device
+            )
+
+
+            preds = model.decode_predictions(
+                    predicted_ids=pred_ids
+            )
+
+            output["self_attn_ws"].append(self_attn_ws)
+            output["cross_attn_ws"].append(cross_attn_ws)
+            output["preds"].append(preds[0])
+
+            if mode == "eval":
+                labels = inp["labels"].to(config.DEVICE)
+                label = model.decode_predictions(
+                    predicted_ids=labels
+                )
+            output["labels"].append(label[0])
+        
+        # break
+        
+    if mode == "eval":
+        test_dist = calc_edit_distance(
+            predictions=output["preds"], 
+            y=output["labels"], 
+            batch=True
+        )        
+        
+        inference_results = pd.DataFrame({
+            "prediction": output["preds"],
+            "label": output["labels"],
+            "correct": [float(p==l) for p,l in zip(output["preds"], output["labels"])],
+            "distance": [calc_edit_distance(p, l, batch=False) for p,l in zip(output["preds"], output["labels"])]
+        })
+        
+        success_rate = 100*inference_results.correct.mean()
+        
+        print(f"**** Evaluatiion Report *****")
+        print(f"> Test Lev. distance\t: {test_dist:.4f}")
+        print(f"> Success Rate\t\t: {success_rate:.4f}%")
+        print(f"**** Evaluatiion Report *****")
+        return inference_results
+    else:
+        return output
