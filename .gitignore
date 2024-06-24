@@ -9,7 +9,7 @@ dataset/
 data/
 checkpoints/
 wandb/
-models/
+#models/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 .ipynb_checkpoints/

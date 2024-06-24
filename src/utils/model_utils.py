@@ -20,6 +20,9 @@ import os
 
 import pandas as pd
 import rt1
+
+import streamlit as st
+
 import timm
 
 from tqdm.auto import tqdm 
@@ -471,10 +474,13 @@ def validation_step(batch, model, loss_fn, debug:bool=False):
     
     return output
 
-def load_checkpoint(model_name:str="be_model", device:str=config.DEVICE):
+@st.cache_resource
+def load_checkpoint(
+        model_name:str="be_model", 
+        device:str=config.DEVICE
+    ):
     
     logging.info("Loading model from checkpoint...")
-    
     logging.info("Creating instance of RTCRAM...")
     
     model = rt1.RTCRAM(
@@ -486,11 +492,16 @@ def load_checkpoint(model_name:str="be_model", device:str=config.DEVICE):
     
     logging.info("Preparing checkpoint...")
     CKPT_PATH = os.path.join(config.MODEL_PATH, model_name+".bin")
-    ckpt = torch.load(CKPT_PATH)  
     
     logging.info("loading model state dict...")
-    model.load_state_dict(ckpt["model_state_dict"])
-    
+    try:
+        ckpt = torch.load(CKPT_PATH)  
+        model.load_state_dict(ckpt["model_state_dict"])
+    except FileNotFoundError:
+        logging.error(f"Could not find model checkpoint in {config.MODEL_PATH}...trying other locations")
+        ckpt = torch.load(os.path.join("models", model_name+".bin"))  
+        model.load_state_dict(ckpt["model_state_dict"])
+
     logging.info("Loading model from checkpoint...Complete!")
     
     return model
@@ -759,6 +770,21 @@ def calc_edit_distance(predictions:list, y:list, batch:bool=False):
     
     return dist
 
+def predict(model, inp, debug, device):
+
+    pred_ids, logits, self_attn_ws, cross_attn_ws = greedy_decoding(
+                model=model, 
+                batch_inp=inp, 
+                debug=debug,
+                device=device
+            )
+
+
+    preds = model.decode_predictions(
+            predicted_ids=pred_ids
+    )
+    return preds, self_attn_ws, cross_attn_ws
+
 
 def inference_step(
     test_loader, 
@@ -802,17 +828,7 @@ def inference_step(
                 idx=sample_id
             )
 
-            pred_ids, logits, self_attn_ws, cross_attn_ws = greedy_decoding(
-                model=model, 
-                batch_inp=inp, 
-                debug=debug,
-                device=device
-            )
-
-
-            preds = model.decode_predictions(
-                    predicted_ids=pred_ids
-            )
+            preds, self_attn_ws, cross_attn_ws = predict(model, inp, debug, device)
 
             output["self_attn_ws"].append(self_attn_ws)
             output["cross_attn_ws"].append(cross_attn_ws)

@@ -101,7 +101,7 @@ PROJECT_NAME = 'SMF-Be'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 TEST_DEVICE = "cpu"
 BATCH_SIZE = 128
-TEST_BATCH_SIZE = 64
+TEST_BATCH_SIZE = 1
 EPOCHS = 100
 NUM_VAL_STEPS = 1
 

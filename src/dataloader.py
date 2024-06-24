@@ -61,7 +61,49 @@ class TargetEncoding:
         self.dec_inp_token_ids  = dec_inp_token_ids + ([self.pad_id] * padding_len)
         self.label_token_ids    = label_token_ids + ([self.pad_id] * padding_len)
         
+class InputPreprocessor:
+    def __init__(self):
+            self.tokenizer          = AutoTokenizer.from_pretrained(config.LANG_MODEL_NAME)
+            self.included_special_tokens = [
+                self.tokenizer.cls_token_id, 
+                self.tokenizer.sep_token_id, 
+                self.tokenizer.pad_token_id
+            ]
+
+            tfms = [
+                getattr(A, tfms)(**params) for tfms, params in config.TEST_TFMS.items()
+            ]
+            tfms.append(ToTensorV2())
+            
+            self.img_tfms = A.Compose(tfms)
+
+    def _preprocess_inputs(self, imgs, instruction)->dict:
+        # apply transforms
+        in_state    = self.img_tfms(image=imgs)["image"]
         
+        # prepare action desc & encoder inputs 
+        enc_ad = self.tokenizer.encode_plus(
+            instruction.strip(), 
+            padding="max_length", 
+            max_length=config.MAX_LEN
+        )
+        
+        encoder_inp = torch.as_tensor(enc_ad["input_ids"]).long()     
+        
+        sample = {
+            "sample_id": None,
+            "in_state": in_state,
+            "action_desc": {
+                "raw"       : instruction,
+                "ids"       : encoder_inp,
+                "mask"      : torch.as_tensor(enc_ad["attention_mask"]).long(),
+                "token_type_ids": torch.as_tensor(enc_ad["token_type_ids"]).long(),
+            },
+            
+        }
+
+        return sample
+
 class BEDataset(Dataset):
     def __init__(
             self,
@@ -182,7 +224,6 @@ class BEDataset(Dataset):
             padding="max_length", 
             max_length=config.MAX_LEN
         )
-        
 
         ## target
         enc_cmd = TargetEncoding(inp=data_point.motor_cmd)
