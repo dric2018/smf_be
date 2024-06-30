@@ -9,7 +9,7 @@ dataset/
 data/
 checkpoints/
 wandb/
-#models/
+models/
 .ipynb_checkpoints/
 */.ipynb_checkpoints/*
 .ipynb_checkpoints/
@@ -28,6 +28,9 @@ src/wandb/
 # src/utils
 src/utils/__pycache__/
 src/utils/.ipynb_checkpoints/
+
+#app
+app/models/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
